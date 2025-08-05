@@ -1,7 +1,9 @@
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from jose import JWTError, jwt
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from uuid import UUID
 
 from app.database import get_db
 from app.models.user import User
@@ -16,14 +18,24 @@ async def get_current_user(token: str = Depends(oauth2_scheme), db: AsyncSession
         headers={"WWW-Authenticate": "Bearer"},
     )
     try:
-        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+        payload = jwt.decode(token, settings.JWT_SECRET_KEY, algorithms=[settings.JWT_ALGORITHM])
         user_id: str = payload.get("sub")
         if user_id is None:
             raise credentials_exception
+        print("✅ Extracted user_id:", user_id)
     except JWTError:
         raise credentials_exception
 
-    user = await db.get(User, user_id)
-    if user is None:
+    try:
+        stmt = select(User).where(User.id == UUID(user_id))
+        result = await db.execute(stmt)
+        user = result.scalar_one_or_none()
+    except Exception as e:
+        print("❌ Error getting user:", str(e))
         raise credentials_exception
+
+    if user is None:
+        print("❌ User not found in DB for ID:", user_id)
+        raise credentials_exception
+
     return user

@@ -66,5 +66,6 @@ async def login(form_data: OAuth2PasswordRequestForm = Depends(), db: AsyncSessi
         raise HTTPException(status_code=400, detail="Invalid login request")
     if not user or not verify_password(form_data.password, user.password_hash):
         raise HTTPException(status_code=401, detail="Invalid credentials")
+    print("✅ User ID found on login:", user.id)
     access_token = create_access_token({"sub": str(user.id)})
     return {"access_token": access_token, "token_type": "bearer"}

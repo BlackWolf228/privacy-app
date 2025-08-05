@@ -11,5 +11,8 @@ router = APIRouter(
 )
 
 @router.get("/me", response_model=UserOut)
-async def get_me(current_user: User = Depends(get_current_user)):
+async def get_me(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
     return current_user

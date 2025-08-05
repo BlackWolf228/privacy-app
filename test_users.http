@@ -1,0 +1,12 @@
+### Login and get token### Login (corect, cu form data)
+POST http://localhost:8000/auth/login
+Content-Type: application/x-www-form-urlencoded
+
+username=test1@test.com&password=stringst123333
+
+
+###
+
+### Get current user using Bearer token (pune tokenul obținut de mai sus)
+GET http://localhost:8000/users/me
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJiODEwZTczOC02MDUxLTRjNjUtYWMzOC0xMjJmYjE1MzMwMzciLCJleHAiOjE3NTQ0NjMwNjB9.4Baz31KpTe3-X015T6YJ1-lxhnrVEKdkl1WU97OtFFw
