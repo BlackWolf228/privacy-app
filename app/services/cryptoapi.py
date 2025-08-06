@@ -39,13 +39,13 @@ async def create_wallet(currency: str, network: str) -> Dict[str, str]:
         A dictionary with ``wallet_id`` and ``address``.
 
     Raises:
-        error.HTTPError: If the API returns an error status code.
+        CryptoAPIError: If the API returns an error status code.
         error.URLError: If a network error occurs after retries.
     """
     if not API_KEY:
         raise CryptoAPIError("CRYPTO_API_KEY is not set")
     headers = {
-        "Authorization": f"Bearer {API_KEY}",
+        "X-API-Key": API_KEY,
         "Content-Type": "application/json",
     }
     payload = json.dumps({"currency": currency, "network": network}).encode()
@@ -70,8 +70,13 @@ async def create_wallet(currency: str, network: str) -> Dict[str, str]:
 
             return await asyncio.to_thread(do_request)
         except error.HTTPError as exc:
-            # Client errors should not be retried
-            raise exc
+            # surface API error details for easier debugging
+            body = exc.read().decode()
+            try:
+                detail = json.loads(body)
+            except json.JSONDecodeError:
+                detail = body or exc.reason
+            raise CryptoAPIError(f"HTTP {exc.code}: {detail}") from exc
         except error.URLError as exc:
             last_exc = exc
             continue

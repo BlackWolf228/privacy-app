@@ -1,5 +1,10 @@
 import os
-from dotenv import load_dotenv
+
+try:
+    from dotenv import load_dotenv
+except ModuleNotFoundError:  # pragma: no cover - optional dependency
+    def load_dotenv(*args, **kwargs):
+        pass
 
 load_dotenv()
 
@@ -28,7 +33,9 @@ class Settings:
         self.EMAIL_FROM = os.getenv("EMAIL_FROM", "noreply@privacyapp.com")
 
         # CryptoAPI
-        self.CRYPTO_API_BASE_URL = os.getenv("CRYPTO_API_BASE_URL", "https://api.cryptoapi.com/v1")
+        self.CRYPTO_API_BASE_URL = os.getenv(
+            "CRYPTO_API_BASE_URL", "https://rest.cryptoapis.io/v2/wallet-as-a-service"
+        )
         self.CRYPTO_API_KEY = os.getenv("CRYPTO_API_KEY")
 
 settings = Settings()
