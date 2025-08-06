@@ -64,34 +64,6 @@ async def verify_code(
     current_user.email_verified = True
     db.add(current_user)
 
-    # Wallets are no longer created here after verification.
-    # They must be explicitly created via the `/wallets` endpoint.
-
-    # Sterge codul după validare
-    await db.delete(email_code)
-
-    # Creeaza portofele pentru monede suportate
-    for currency, networks in SUPPORTED_NETWORKS.items():
-        network = networks[0]
-        result = await db.execute(
-            select(Wallet).where(
-                Wallet.user_id == current_user.id,
-                Wallet.currency == currency,
-                Wallet.network == network,
-            )
-        )
-        if result.scalar_one_or_none():
-            continue
-        data = await create_wallet(currency, network)
-        wallet = Wallet(
-            user_id=current_user.id,
-            wallet_id=data["wallet_id"],
-            address=data["address"],
-            currency=currency,
-            network=network,
-        )
-        db.add(wallet)
-
     await db.commit()
 
     return {"message": "Code verified successfully"}

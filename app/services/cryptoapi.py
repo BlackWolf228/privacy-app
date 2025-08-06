@@ -1,12 +1,13 @@
-import os
 import json
 import asyncio
 from typing import Dict
 
 from urllib import request, error
 
-API_BASE_URL = os.getenv("CRYPTO_API_BASE_URL", "https://api.cryptoapi.com/v1")
-API_KEY = os.getenv("CRYPTO_API_KEY")
+from app.config import settings
+
+API_BASE_URL = settings.CRYPTO_API_BASE_URL
+API_KEY = settings.CRYPTO_API_KEY
 
 SUPPORTED_NETWORKS = {
     "BTC": ["BITCOIN"],
@@ -28,28 +29,30 @@ class CryptoAPIError(Exception):
     """Generic error raised when the CryptoAPI request fails."""
 
 async def create_wallet(currency: str, network: str) -> Dict[str, str]:
-    """Create a wallet using CryptoAPI Wallet as a Service.
+    """Create an HD wallet using CryptoAPI Wallet as a Service.
 
     Args:
-        currency: Currency code (e.g., 'BTC').
-        network: Network/chain where the wallet will live.
+        currency: Currency code (e.g., ``"BTC"``).
+        network: Network/chain where the wallet will live (e.g., ``"BITCOIN"``).
 
     Returns:
-        A dictionary with ``wallet_id`` and ``address``.
+        A dictionary with ``wallet_id`` and ``xpub`` returned by the API.
 
     Raises:
-        error.HTTPError: If the API returns an error status code.
+        CryptoAPIError: If the API returns an error status code.
         error.URLError: If a network error occurs after retries.
     """
+    if not API_KEY:
+        raise CryptoAPIError("CRYPTO_API_KEY is not set")
     headers = {
-        "Authorization": f"Bearer {API_KEY}",
+        "X-API-Key": API_KEY,
         "Content-Type": "application/json",
     }
-    payload = json.dumps({"currency": currency, "network": network}).encode()
 
+    # Endpoint requires currency and network as path params.
     req = request.Request(
-        f"{API_BASE_URL}/wallets",
-        data=payload,
+        f"{API_BASE_URL}/wallet-as-a-service/wallets/hd/{currency}/{network}",
+        data=json.dumps({"context": "create-wallet"}).encode("utf-8"),
         headers=headers,
         method="POST",
     )
@@ -59,16 +62,22 @@ async def create_wallet(currency: str, network: str) -> Dict[str, str]:
         try:
             def do_request():
                 with request.urlopen(req, timeout=10) as resp:
-                    data = json.loads(resp.read().decode())
+                    raw = json.loads(resp.read().decode())
+                    item = raw.get("data", {}).get("item", raw)
                     return {
-                        "wallet_id": data.get("wallet_id"),
-                        "address": data.get("address"),
+                        "wallet_id": item.get("walletId") or item.get("wallet_id"),
+                        "xpub": item.get("xpub"),
                     }
 
             return await asyncio.to_thread(do_request)
         except error.HTTPError as exc:
-            # Client errors should not be retried
-            raise exc
+            # surface API error details for easier debugging
+            body = exc.read().decode()
+            try:
+                detail = json.loads(body)
+            except json.JSONDecodeError:
+                detail = body or exc.reason
+            raise CryptoAPIError(f"HTTP {exc.code}: {detail}") from exc
         except error.URLError as exc:
             last_exc = exc
             continue
