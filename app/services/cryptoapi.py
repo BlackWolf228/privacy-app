@@ -1,12 +1,13 @@
-import os
 import json
 import asyncio
 from typing import Dict
 
 from urllib import request, error
 
-API_BASE_URL = os.getenv("CRYPTO_API_BASE_URL", "https://api.cryptoapi.com/v1")
-API_KEY = os.getenv("CRYPTO_API_KEY")
+from app.config import settings
+
+API_BASE_URL = settings.CRYPTO_API_BASE_URL
+API_KEY = settings.CRYPTO_API_KEY
 
 SUPPORTED_NETWORKS = {
     "BTC": ["BITCOIN"],
@@ -41,6 +42,8 @@ async def create_wallet(currency: str, network: str) -> Dict[str, str]:
         error.HTTPError: If the API returns an error status code.
         error.URLError: If a network error occurs after retries.
     """
+    if not API_KEY:
+        raise CryptoAPIError("CRYPTO_API_KEY is not set")
     headers = {
         "Authorization": f"Bearer {API_KEY}",
         "Content-Type": "application/json",

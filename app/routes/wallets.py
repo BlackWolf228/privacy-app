@@ -1,17 +1,14 @@
 from fastapi import APIRouter
 from pydantic import BaseModel
 
+from app.services.cryptoapi import create_wallet
+
 router = APIRouter(prefix="/wallets", tags=["Wallets"])
 
 
 class WalletCreate(BaseModel):
     currency: str
     network: str
-
-
-async def create_wallet(currency: str, network: str):
-    """Stub wallet creation function."""
-    return {"currency": currency, "network": network}
 
 
 @router.post("/")
