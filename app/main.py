@@ -9,7 +9,8 @@ app = FastAPI(title="Privacy Fintech API")
 app.include_router(auth.router)
 app.include_router(user.router)
 app.include_router(twofa.router)
-app.include_router(wallets.router)
+app.include_router(wallet.router)
+
 
 # Allow frontend usage (optional)
 app.add_middleware(

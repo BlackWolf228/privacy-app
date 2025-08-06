@@ -1,12 +1,15 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.future import select
 from datetime import datetime, timedelta
 import secrets
 
 from app.database import get_db
 from app.models.user import User
 from app.models.twofa import EmailCode
-from app.schemas.twofa import EmailCodeCreate, EmailCodeVerify
+from app.models.wallet import Wallet
+from app.schemas.twofa import EmailCodeVerify
+from app.services.cryptoapi import SUPPORTED_NETWORKS, create_wallet
 from app.utils.auth import get_current_user
 from app.utils.email import send_verification_email
 
@@ -47,7 +50,6 @@ async def verify_code(
     if payload.email != current_user.email:
         raise HTTPException(status_code=400, detail="Email does not match authenticated user")
 
-    from sqlalchemy.future import select
     result = await db.execute(
         select(EmailCode).where(
             EmailCode.user_id == current_user.id,
@@ -67,6 +69,29 @@ async def verify_code(
 
     # Sterge codul după validare
     await db.delete(email_code)
+
+    # Creeaza portofele pentru monede suportate
+    for currency, networks in SUPPORTED_NETWORKS.items():
+        network = networks[0]
+        result = await db.execute(
+            select(Wallet).where(
+                Wallet.user_id == current_user.id,
+                Wallet.currency == currency,
+                Wallet.network == network,
+            )
+        )
+        if result.scalar_one_or_none():
+            continue
+        data = await create_wallet(currency, network)
+        wallet = Wallet(
+            user_id=current_user.id,
+            wallet_id=data["wallet_id"],
+            address=data["address"],
+            currency=currency,
+            network=network,
+        )
+        db.add(wallet)
+
     await db.commit()
 
     return {"message": "Code verified successfully"}
