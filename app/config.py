@@ -12,15 +12,15 @@ class Settings:
         self.POSTGRES_USER = os.getenv("POSTGRES_USER")
         self.POSTGRES_PASSWORD = os.getenv("POSTGRES_PASSWORD")
         self.POSTGRES_DB = os.getenv("POSTGRES_DB")
-        self.POSTGRES_HOST = os.getenv("POSTGRES_HOST", "localhost")
-        self.POSTGRES_PORT = os.getenv("POSTGRES_PORT", "5432")
+        self.POSTGRES_HOST = os.getenv("POSTGRES_HOST")
+        self.POSTGRES_PORT = os.getenv("POSTGRES_PORT")
 
         self.DATABASE_URL = (
             f"postgresql+asyncpg://{self.POSTGRES_USER}:{self.POSTGRES_PASSWORD}@{self.POSTGRES_HOST}:{self.POSTGRES_PORT}/{self.POSTGRES_DB}"
         )
 
         # JWT
-        self.JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY", "super-secret-key")
+        self.JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY")
         self.JWT_ALGORITHM = "HS256"
         self.ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7
 
