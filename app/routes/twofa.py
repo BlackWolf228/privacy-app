@@ -64,6 +64,9 @@ async def verify_code(
     current_user.email_verified = True
     db.add(current_user)
 
+    # Wallets are no longer created here after verification.
+    # They must be explicitly created via the `/wallets` endpoint.
+
     # Sterge codul după validare
     await db.delete(email_code)
 
