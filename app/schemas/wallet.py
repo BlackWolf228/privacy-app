@@ -17,3 +17,16 @@ class WalletOut(BaseModel):
 
     class Config:
         orm_mode = True
+
+class WalletBalance(BaseModel):
+    wallet_id: str
+    amount: str
+    currency: str
+
+class WithdrawalRequest(BaseModel):
+    address: str
+    amount: str
+
+class WithdrawalResponse(BaseModel):
+    transfer_id: str
+    status: str

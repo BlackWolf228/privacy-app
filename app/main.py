@@ -1,7 +1,7 @@
 from fastapi import FastAPI, Depends
 from fastapi.openapi.utils import get_openapi
 from fastapi.middleware.cors import CORSMiddleware
-from app.routes import auth, user, twofa, wallets
+from app.routes import auth, user, twofa, wallet, circle_webhook
 from app.utils.auth import oauth2_scheme
 
 app = FastAPI(title="Privacy Fintech API")
@@ -10,7 +10,7 @@ app.include_router(auth.router)
 app.include_router(user.router)
 app.include_router(twofa.router)
 app.include_router(wallet.router)
-
+app.include_router(circle_webhook.router)
 
 # Allow frontend usage (optional)
 app.add_middleware(
@@ -40,7 +40,7 @@ def custom_openapi():
     }
     for path in openapi_schema["paths"]:
         for method in openapi_schema["paths"][path]:
-                openapi_schema["paths"][path][method]["security"] = [{"BearerAuth": []}]
+            openapi_schema["paths"][path][method]["security"] = [{"BearerAuth": []}]
     app.openapi_schema = openapi_schema
     return app.openapi_schema
 
