@@ -30,19 +30,21 @@ def create_access_token(data: dict, expires_delta: timedelta = timedelta(minutes
 
 @router.post("/auth/register", response_model=UserOut)
 async def register(user: UserCreate, db: AsyncSession = Depends(get_db)):
+    email = user.email.lower()
+
     # 1. Verificam daca emailul este in whitelist
-    if not is_email_whitelisted(user.email):
+    if not is_email_whitelisted(email):
         raise HTTPException(status_code=403, detail="This email is not whitelisted")
-    
+
     # 2. Check if email already exists
-    result = await db.execute(select(User).where(User.email == user.email))
+    result = await db.execute(select(User).where(User.email == email))
     existing_user = result.scalar_one_or_none()
     if existing_user:
         raise HTTPException(status_code=400, detail="Email already registered")
 
     # 3. Create new user
     new_user = User(
-        email=user.email,
+        email=email,
         password_hash=hash_password(user.password)
     )
     db.add(new_user)
@@ -66,8 +68,9 @@ async def register(user: UserCreate, db: AsyncSession = Depends(get_db)):
 
 @router.post("/auth/login")
 async def login(form_data: OAuth2PasswordRequestForm = Depends(), db: AsyncSession = Depends(get_db)):
+    email = form_data.username.lower()
     try:
-        result = await db.execute(select(User).where(User.email == form_data.username))
+        result = await db.execute(select(User).where(User.email == email))
         user = result.scalar_one_or_none()
     except DataError:
         raise HTTPException(status_code=400, detail="Invalid login request")
