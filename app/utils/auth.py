@@ -22,7 +22,6 @@ async def get_current_user(token: str = Depends(oauth2_scheme), db: AsyncSession
         user_id: str = payload.get("sub")
         if user_id is None:
             raise credentials_exception
-        print("✅ Extracted user_id:", user_id)
     except JWTError:
         raise credentials_exception
 
@@ -31,11 +30,9 @@ async def get_current_user(token: str = Depends(oauth2_scheme), db: AsyncSession
         result = await db.execute(stmt)
         user = result.scalar_one_or_none()
     except Exception as e:
-        print("❌ Error getting user:", str(e))
         raise credentials_exception
 
     if user is None:
-        print("❌ User not found in DB for ID:", user_id)
         raise credentials_exception
 
     return user
