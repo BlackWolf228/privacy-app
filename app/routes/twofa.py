@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from datetime import datetime, timedelta
-import random
+import secrets
 
 from app.database import get_db
 from app.models.user import User
@@ -17,7 +17,7 @@ async def request_code(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    code = str(random.randint(100000, 999999))
+    code = f"{secrets.randbelow(900000) + 100000:06d}"
     expiry = datetime.utcnow() + timedelta(minutes=10)
 
     email_code = EmailCode(
