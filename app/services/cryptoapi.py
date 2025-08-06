@@ -29,14 +29,14 @@ class CryptoAPIError(Exception):
     """Generic error raised when the CryptoAPI request fails."""
 
 async def create_wallet(currency: str, network: str) -> Dict[str, str]:
-    """Create a wallet using CryptoAPI Wallet as a Service.
+    """Create an HD wallet using CryptoAPI Wallet as a Service.
 
     Args:
-        currency: Currency code (e.g., 'BTC').
-        network: Network/chain where the wallet will live.
+        currency: Currency code (e.g., ``"BTC"``).
+        network: Network/chain where the wallet will live (e.g., ``"BITCOIN"``).
 
     Returns:
-        A dictionary with ``wallet_id`` and ``address``.
+        A dictionary with ``wallet_id`` and ``xpub`` returned by the API.
 
     Raises:
         CryptoAPIError: If the API returns an error status code.
@@ -51,8 +51,8 @@ async def create_wallet(currency: str, network: str) -> Dict[str, str]:
 
     # Endpoint requires currency and network as path params.
     req = request.Request(
-        f"{API_BASE_URL}/wallets/{currency}/{network}",
-        data=b"{}",
+        f"{API_BASE_URL}/wallet-as-a-service/wallets/hd/{currency}/{network}",
+        data=json.dumps({"context": "create-wallet"}).encode("utf-8"),
         headers=headers,
         method="POST",
     )
@@ -62,10 +62,11 @@ async def create_wallet(currency: str, network: str) -> Dict[str, str]:
         try:
             def do_request():
                 with request.urlopen(req, timeout=10) as resp:
-                    data = json.loads(resp.read().decode())
+                    raw = json.loads(resp.read().decode())
+                    item = raw.get("data", {}).get("item", raw)
                     return {
-                        "wallet_id": data.get("wallet_id"),
-                        "address": data.get("address"),
+                        "wallet_id": item.get("walletId") or item.get("wallet_id"),
+                        "xpub": item.get("xpub"),
                     }
 
             return await asyncio.to_thread(do_request)
