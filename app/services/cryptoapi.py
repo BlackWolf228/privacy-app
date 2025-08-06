@@ -45,7 +45,7 @@ async def create_wallet(currency: str, network: str) -> Dict[str, str]:
     if not API_KEY:
         raise CryptoAPIError("CRYPTO_API_KEY is not set")
     headers = {
-        "Authorization": f"Bearer {API_KEY}",
+        "X-API-Key": API_KEY,
         "Content-Type": "application/json",
     }
     payload = json.dumps({"currency": currency, "network": network}).encode()
