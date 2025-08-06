@@ -27,4 +27,8 @@ class Settings:
         # Email
         self.EMAIL_FROM = os.getenv("EMAIL_FROM", "noreply@privacyapp.com")
 
+        # CryptoAPI
+        self.CRYPTO_API_BASE_URL = os.getenv("CRYPTO_API_BASE_URL", "https://api.cryptoapi.com/v1")
+        self.CRYPTO_API_KEY = os.getenv("CRYPTO_API_KEY")
+
 settings = Settings()
