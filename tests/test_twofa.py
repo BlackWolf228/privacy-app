@@ -40,3 +40,29 @@ def test_verify_code_rejects_email_mismatch():
         db.execute.assert_not_called()
 
     asyncio.run(call())
+
+
+def test_verify_code_does_not_create_wallet(monkeypatch):
+    fastapi = pytest.importorskip("fastapi")
+    from app.models.user import User
+    from app.models.twofa import EmailCode
+    from app.routes.twofa import verify_code
+    from app.schemas.twofa import EmailCodeVerify
+    import asyncio
+    from datetime import datetime, timedelta
+
+    user = User(id=uuid.uuid4(), email="user@example.com", password_hash="hash")
+    payload = EmailCodeVerify(email="user@example.com", code="123456")
+    email_code = EmailCode(user_id=user.id, code="123456", expires_at=datetime.utcnow() + timedelta(minutes=5))
+
+    db = AsyncMock()
+    db.execute.return_value.scalar_one_or_none.return_value = email_code
+
+    wallet_mock = AsyncMock()
+    monkeypatch.setattr("app.routes.twofa.create_wallet", wallet_mock, raising=False)
+
+    async def call():
+        await verify_code(payload=payload, current_user=user, db=db)
+
+    asyncio.run(call())
+    wallet_mock.assert_not_called()
