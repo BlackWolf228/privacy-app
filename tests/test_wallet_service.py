@@ -1,5 +1,8 @@
 import asyncio
-
+import json
+import sys
+from pathlib import Path
+from urllib import request
 
 import pytest
 
@@ -23,14 +26,18 @@ class DummyResponse:
 
 def test_create_wallet_uses_api_key(monkeypatch):
     def fake_urlopen(req, timeout=10):
+        assert req.full_url == f"{cryptoapi.API_BASE_URL}/wallet-as-a-service/wallets/hd/BTC/BITCOIN"
         assert req.headers["X-api-key"] == "test-key"
-        return DummyResponse({"wallet_id": "w1", "address": "addr"})
+        assert json.loads(req.data.decode()) == {"context": "create-wallet"}
+        return DummyResponse({"walletId": "w1", "xpub": "xpub6"})
 
     monkeypatch.setattr(cryptoapi, "API_KEY", "test-key")
+    monkeypatch.setattr(cryptoapi, "API_BASE_URL", "https://api")
     monkeypatch.setattr(request, "urlopen", fake_urlopen)
 
     async def call():
         result = await cryptoapi.create_wallet("BTC", "BITCOIN")
-        assert result == {"wallet_id": "w1", "address": "addr"}
+        assert result == {"wallet_id": "w1", "xpub": "xpub6"}
 
     asyncio.run(call())
+
