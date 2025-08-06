@@ -1,7 +1,7 @@
 from fastapi import FastAPI, Depends
 from fastapi.openapi.utils import get_openapi
 from fastapi.middleware.cors import CORSMiddleware
-from app.routes import auth, user, twofa, wallets
+from app.routes import auth, user, twofa, wallet
 from app.utils.auth import oauth2_scheme
 
 app = FastAPI(title="Privacy Fintech API")
