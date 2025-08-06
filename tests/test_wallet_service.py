@@ -1,8 +1,4 @@
 import asyncio
-import json
-from pathlib import Path
-import sys
-from urllib import request
 
 import pytest
 
