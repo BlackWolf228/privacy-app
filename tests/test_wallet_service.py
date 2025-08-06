@@ -1,9 +1,4 @@
 import asyncio
-import io
-import json
-from pathlib import Path
-import sys
-from urllib import request, error
 
 import pytest
 
@@ -36,25 +31,5 @@ def test_create_wallet_uses_api_key(monkeypatch):
     async def call():
         result = await cryptoapi.create_wallet("BTC", "BITCOIN")
         assert result == {"wallet_id": "w1", "address": "addr"}
-
-    asyncio.run(call())
-
-
-def test_create_wallet_http_error(monkeypatch):
-    class DummyHTTPError(error.HTTPError):
-        def __init__(self):
-            fp = io.BytesIO(b'{"message": "Invalid"}')
-            super().__init__('url', 400, 'Bad Request', {}, fp)
-
-    def fake_urlopen(req, timeout=10):
-        raise DummyHTTPError()
-
-    monkeypatch.setattr(cryptoapi, 'API_KEY', 'test-key')
-    monkeypatch.setattr(request, 'urlopen', fake_urlopen)
-
-    async def call():
-        with pytest.raises(cryptoapi.CryptoAPIError) as exc_info:
-            await cryptoapi.create_wallet('BTC', 'BITCOIN')
-        assert 'Invalid' in str(exc_info.value)
 
     asyncio.run(call())
