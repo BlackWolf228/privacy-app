@@ -1,5 +1,6 @@
 from sqlalchemy import Column, String, Boolean, DateTime
 from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.orm import relationship
 import uuid
 from datetime import datetime
 
@@ -26,6 +27,7 @@ class User(Base):
     email_verified = Column(Boolean, default=False)
     phone_number = Column(String, nullable=True)
     kyc_status = Column(String, default="not_started")
+    email_codes = relationship("EmailCode", back_populates="user", cascade="all, delete-orphan")
 
     def __repr__(self):
         return f"<User id={self.id} email={self.email} active={self.is_active} kyc={self.kyc_status}>"

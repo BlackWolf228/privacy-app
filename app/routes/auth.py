@@ -12,12 +12,15 @@ from app.database import get_db
 from app.models.user import User
 from app.schemas.user import UserCreate, UserOut
 from app.utils.security import hash_password, verify_password
+from app.config import settings
+
+from app.utils.whitelist import is_email_whitelisted
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
-SECRET_KEY = os.getenv("SECRET_KEY", "supersecretkey")
-ALGORITHM = "HS256"
+SECRET_KEY = settings.JWT_SECRET_KEY
+ALGORITHM = settings.JWT_ALGORITHM
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24
 
 def create_access_token(data: dict, expires_delta: timedelta = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)):
@@ -27,13 +30,17 @@ def create_access_token(data: dict, expires_delta: timedelta = timedelta(minutes
 
 @router.post("/auth/register", response_model=UserOut)
 async def register(user: UserCreate, db: AsyncSession = Depends(get_db)):
-    # 1. Check if email already exists
+    # 1. Verificam daca emailul este in whitelist
+    if not is_email_whitelisted(user.email):
+        raise HTTPException(status_code=403, detail="This email is not whitelisted")
+    
+    # 2. Check if email already exists
     result = await db.execute(select(User).where(User.email == user.email))
     existing_user = result.scalar_one_or_none()
     if existing_user:
         raise HTTPException(status_code=400, detail="Email already registered")
 
-    # 2. Create new user
+    # 3. Create new user
     new_user = User(
         email=user.email,
         password_hash=hash_password(user.password)
@@ -66,6 +73,5 @@ async def login(form_data: OAuth2PasswordRequestForm = Depends(), db: AsyncSessi
         raise HTTPException(status_code=400, detail="Invalid login request")
     if not user or not verify_password(form_data.password, user.password_hash):
         raise HTTPException(status_code=401, detail="Invalid credentials")
-    print("✅ User ID found on login:", user.id)
     access_token = create_access_token({"sub": str(user.id)})
     return {"access_token": access_token, "token_type": "bearer"}

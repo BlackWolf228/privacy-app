@@ -1,0 +1,59 @@
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.ext.asyncio import AsyncSession
+from datetime import datetime, timedelta
+import random
+
+from app.database import get_db
+from app.models.user import User
+from app.models.twofa import EmailCode
+from app.schemas.twofa import EmailCodeCreate, EmailCodeVerify
+from app.utils.auth import get_current_user
+from app.utils.email import send_verification_email
+
+router = APIRouter(prefix="/auth", tags=["2FA"])
+
+@router.post("/request-code")
+async def request_code(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    code = str(random.randint(100000, 999999))
+    expiry = datetime.utcnow() + timedelta(minutes=10)
+
+    email_code = EmailCode(
+        user_id=current_user.id,
+        code=code,
+        expires_at=expiry
+    )
+    db.add(email_code)
+    await db.commit()
+
+    await send_verification_email(current_user.email, code)
+    return {"message": "Verification code sent."}
+
+@router.post("/verify-code")
+async def verify_code(
+    payload: EmailCodeVerify,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    from sqlalchemy.future import select
+    result = await db.execute(
+        select(EmailCode).where(
+            EmailCode.user_id == current_user.id,
+            EmailCode.code == payload.code
+        )
+    )
+    email_code = result.scalar_one_or_none()
+
+    if not email_code or email_code.expires_at < datetime.utcnow():
+        raise HTTPException(status_code=400, detail="Invalid or expired code")
+
+    current_user.email_verified = True
+    db.add(current_user)
+    
+    #Sterge codul după validare
+    await db.delete(email_code)
+    await db.commit()
+
+    return {"message": "Code verified successfully"}
