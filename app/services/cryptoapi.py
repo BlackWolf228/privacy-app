@@ -48,11 +48,11 @@ async def create_wallet(currency: str, network: str) -> Dict[str, str]:
         "X-API-Key": API_KEY,
         "Content-Type": "application/json",
     }
-    payload = json.dumps({"currency": currency, "network": network}).encode()
 
+    # Endpoint requires currency and network as path params.
     req = request.Request(
-        f"{API_BASE_URL}/wallets",
-        data=payload,
+        f"{API_BASE_URL}/wallets/{currency}/{network}",
+        data=b"{}",
         headers=headers,
         method="POST",
     )
