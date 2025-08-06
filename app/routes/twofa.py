@@ -37,6 +37,16 @@ async def verify_code(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
+    """Verify an emailed code for the current user.
+
+    The email supplied in the payload must match the authenticated user's
+    email address. Mismatched emails are rejected to prevent cross-account
+    verification.
+    """
+
+    if payload.email != current_user.email:
+        raise HTTPException(status_code=400, detail="Email does not match authenticated user")
+
     from sqlalchemy.future import select
     result = await db.execute(
         select(EmailCode).where(
@@ -51,8 +61,8 @@ async def verify_code(
 
     current_user.email_verified = True
     db.add(current_user)
-    
-    #Sterge codul după validare
+
+    # Sterge codul după validare
     await db.delete(email_code)
     await db.commit()
 
