@@ -195,6 +195,8 @@ async def transfer_between_wallets(
         dest_user = result.scalar_one_or_none()
     if dest_user is None:
         raise HTTPException(status_code=404, detail="Destination user not found")
+    if not dest_user.email_verified:
+        raise HTTPException(status_code=400, detail="Destination email not verified")
 
     # Find or create destination wallet for the requested asset
     result = await db.execute(
