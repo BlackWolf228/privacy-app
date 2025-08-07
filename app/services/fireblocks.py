@@ -51,8 +51,8 @@ async def create_asset_for_vault(vault_account_id: str, asset: str) -> str:
     return await asyncio.to_thread(sync_call)
 
 
-async def create_vault_account(name: str, asset: str):
-    """Create a Fireblocks vault account and generate a deposit address for ``asset``."""
+async def create_vault_account(name: str):
+    """Create a Fireblocks vault account and return its identifier."""
 
     def sync_call():
         with get_fireblocks_client() as client:
@@ -65,15 +65,9 @@ async def create_vault_account(name: str, asset: str):
             response = future.result()
             vault_account_id = response.data.id
 
-            client.vaults.generate_new_address(vault_account_id, asset).result()
-            address_response = client.vaults.get_deposit_address(vault_account_id, asset)
-            address = address_response.result().data.address
-
             return {
                 "vault_account_id": vault_account_id,
                 "name": name,
-                "asset": asset,
-                "address": address,
             }
 
     return await asyncio.to_thread(sync_call)

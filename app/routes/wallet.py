@@ -15,7 +15,6 @@ router = APIRouter(prefix="/wallets", tags=["Wallets"])
 
 @router.post("/vault")
 async def create_user_vault(
-    asset: str,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -29,7 +28,7 @@ async def create_user_vault(
     if current_user.has_vault:
         raise HTTPException(status_code=400, detail="User already has a vault")
 
-    data = await create_vault_account(str(current_user.id), asset)
+    data = await create_vault_account(str(current_user.id))
     vault = Vault(vault_id=data["vault_account_id"], user_id=current_user.id)
 
     current_user.has_vault = True
@@ -67,14 +66,15 @@ async def create_user_wallet(
     vault = result.scalar_one_or_none()
 
     if vault is None:
-        vault_data = await create_vault_account(str(current_user.id), asset)
+        vault_data = await create_vault_account(str(current_user.id))
         vault = Vault(vault_id=vault_data["vault_account_id"], user_id=current_user.id)
-        address = vault_data["address"]
+        current_user.has_vault = True
         db.add(vault)
+        db.add(current_user)
         await db.commit()
         await db.refresh(vault)
-    else:
-        address = await create_asset_for_vault(vault.vault_id, asset)
+
+    address = await create_asset_for_vault(vault.vault_id, asset)
 
     wallet = Wallet(
         user_id=current_user.id,
