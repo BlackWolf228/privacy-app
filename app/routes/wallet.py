@@ -14,6 +14,7 @@ from app.services.fireblocks import (
     create_vault_account,
     create_asset_for_vault,
     get_wallet_balance,
+    AssetAlreadyExistsError,
 )
 
 router = APIRouter(prefix="/wallets", tags=["Wallets"])
@@ -80,7 +81,13 @@ async def create_user_wallet(
         await db.commit()
         await db.refresh(vault)
 
-    address = await create_asset_for_vault(vault.vault_id, asset)
+    try:
+        address = await create_asset_for_vault(vault.vault_id, asset)
+    except AssetAlreadyExistsError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail="asset already provisioned for this vault",
+        ) from exc
 
     wallet = Wallet(
         user_id=current_user.id,

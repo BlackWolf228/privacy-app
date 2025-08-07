@@ -136,6 +136,9 @@ def setup_route(monkeypatch):
     fireblocks_mod = types.ModuleType("app.services.fireblocks")
     calls: list[tuple] = []
 
+    class AssetAlreadyExistsError(Exception):  # pragma: no cover - simple stub
+        pass
+
     async def create_vault_account(name: str):
         calls.append(("create_vault_account", name))
         return {
@@ -153,6 +156,7 @@ def setup_route(monkeypatch):
     fireblocks_mod.create_vault_account = create_vault_account
     fireblocks_mod.create_asset_for_vault = create_asset_for_vault
     fireblocks_mod.get_wallet_balance = get_wallet_balance
+    fireblocks_mod.AssetAlreadyExistsError = AssetAlreadyExistsError
     monkeypatch.setitem(sys.modules, "app.services.fireblocks", fireblocks_mod)
 
     # Stub database dependency
@@ -283,4 +287,30 @@ def test_create_vault(monkeypatch):
     except Exception as exc:
         assert getattr(exc, "status_code", None) == 400
     assert calls == [("create_vault_account", "user-1")]
+
+
+def test_adding_existing_asset_returns_409(monkeypatch):
+    create_user_wallet, User, DummySession, calls = setup_route(monkeypatch)
+    from app.routes import wallet as wallet_route
+    from app.services.fireblocks import AssetAlreadyExistsError
+    from app.models.vault import Vault as RouteVault
+
+    async def raise_exists(vault_id: str, asset: str):
+        calls.append(("create_asset_for_vault", vault_id, asset))
+        raise AssetAlreadyExistsError("exists")
+
+    wallet_route.create_asset_for_vault = raise_exists
+
+    session = DummySession()
+    user = User(id="user-1", email_verified=True, has_vault=True)
+    session.vault = RouteVault(vault_id="V1", user_id=user.id)
+
+    try:
+        asyncio.run(create_user_wallet("BTC_TEST", current_user=user, db=session))
+        assert False, "Expected HTTPException"
+    except Exception as exc:
+        assert getattr(exc, "status_code", None) == 409
+        assert getattr(exc, "detail", None) == "asset already provisioned for this vault"
+
+    assert calls == [("create_asset_for_vault", "V1", "BTC_TEST")]
 
