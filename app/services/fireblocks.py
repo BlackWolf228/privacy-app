@@ -27,22 +27,23 @@ def get_deposit_address(vault_account_id: str, asset_id: str):
         return future.result().data
 
 
-async def create_vault_account(name: str):
+async def create_vault_account(name: str, asset: str):
+    """Create a Fireblocks vault account and generate a deposit address for ``asset``."""
+
     def sync_call():
         with get_fireblocks_client() as client:
             request = CreateVaultAccountRequest(
                 name=name,
                 hidden_on_ui=False,
-                auto_fuel=False
+                auto_fuel=False,
             )
             future = client.vaults.create_vault_account(request)
             response = future.result()
 
             vault_account_id = response.data.id
-            asset = "BTC_TEST"
 
             # Generează și returnează adresa
-            client.vaults.generate_new_address(vault_account_id, asset)
+            client.vaults.generate_new_address(vault_account_id, asset).result()
             address_response = client.vaults.get_deposit_address(vault_account_id, asset)
             address = address_response.result().data.address
 
@@ -50,7 +51,7 @@ async def create_vault_account(name: str):
                 "vault_account_id": vault_account_id,
                 "name": response.data.name,
                 "asset": asset,
-                "address": address
+                "address": address,
             }
 
     return await asyncio.to_thread(sync_call)
