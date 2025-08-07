@@ -159,7 +159,7 @@ async def create_transfer(
                     "type": "ONE_TIME_ADDRESS",
                     "oneTimeAddress": {"address": destination_address},
                 },
-                "amount": amount,
+                "amount": {"amount": amount},
             }
             # The Fireblocks SDK expects keyword arguments for optional
             # parameters.  Passing the transaction request positionally causes
@@ -212,7 +212,7 @@ async def transfer_between_vault_accounts(
                     "type": "VAULT_ACCOUNT",
                     "id": destination_vault_id,
                 },
-                "amount": amount,
+                "amount": {"amount": amount},
             }
             idempotency_key = uuid.uuid4().hex
             # Similar to the external transfer above, the SDK validates
