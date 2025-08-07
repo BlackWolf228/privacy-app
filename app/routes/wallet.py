@@ -12,6 +12,35 @@ from app.services.fireblocks import create_vault_account, generate_address_for_v
 
 router = APIRouter(prefix="/wallets", tags=["Wallets"])
 
+
+@router.post("/vault")
+async def create_user_vault(
+    asset: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Create a Fireblocks vault for the current user.
+
+    If the user already has a vault, an HTTP 400 error is raised. Otherwise a new
+    vault is created via the Fireblocks service and persisted along with the
+    updated user flag.
+    """
+
+    if current_user.has_vault:
+        raise HTTPException(status_code=400, detail="User already has a vault")
+
+    data = await create_vault_account(str(current_user.id), asset)
+    vault = Vault(vault_id=data["vault_account_id"], user_id=current_user.id)
+
+    current_user.has_vault = True
+    db.add(vault)
+    db.add(current_user)
+    await db.commit()
+    await db.refresh(vault)
+
+    return vault
+
+
 @router.post("/", response_model=WalletOut)
 async def create_user_wallet(
     asset: str,
