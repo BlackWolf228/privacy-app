@@ -6,6 +6,10 @@ from app.config import settings
 import asyncio
 
 
+class AssetAlreadyExistsError(Exception):
+    """Raised when a vault already contains the requested asset."""
+
+
 def get_fireblocks_client() -> Fireblocks:
     config = ClientConfiguration(
         api_key=settings.FIREBLOCKS_API_KEY,
@@ -40,10 +44,22 @@ async def generate_address_for_vault(vault_account_id: str, asset: str) -> str:
 
 
 async def create_asset_for_vault(vault_account_id: str, asset: str) -> str:
-    """Create ``asset`` in an existing vault and return its deposit address."""
+    """Create ``asset`` in an existing vault and return its deposit address.
+
+    If the asset already exists for the specified vault, an
+    :class:`AssetAlreadyExistsError` is raised instead of generating another
+    address.
+    """
 
     def sync_call() -> str:
         with get_fireblocks_client() as client:
+            account_future = client.vaults.get_vault_account(vault_account_id)
+            account = account_future.result()
+            assets = getattr(account.data, "assets", []) or []
+            if any(getattr(a, "id", None) == asset for a in assets):
+                raise AssetAlreadyExistsError(
+                    f"Asset {asset} already exists in vault {vault_account_id}"
+                )
             future = client.vaults.create_vault_account_asset(vault_account_id, asset)
             response = future.result()
             return response.data.address

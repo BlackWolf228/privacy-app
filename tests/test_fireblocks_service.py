@@ -2,6 +2,7 @@ import sys
 from pathlib import Path
 import asyncio
 import types
+import pytest
 
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 
@@ -41,9 +42,11 @@ class DummyFuture:
 
 
 class DummyVaults:
-    def __init__(self):
+    def __init__(self, existing_assets=None):
         self.generate_called = False
         self.get_called = False
+        self.asset_created = False
+        self.existing_assets = existing_assets or []
 
     def create_vault_account(self, request):
         data = type("Resp", (), {"data": type("Data", (), {"id": "1", "name": request.name})()})()
@@ -58,10 +61,20 @@ class DummyVaults:
         data = type("Resp", (), {"data": type("Data", (), {"address": "ADDR123"})()})()
         return DummyFuture(data)
 
+    def get_vault_account(self, vault_account_id):
+        assets = [type("Asset", (), {"id": a})() for a in self.existing_assets]
+        data = type("Resp", (), {"data": type("Data", (), {"assets": assets})()})()
+        return DummyFuture(data)
+
+    def create_vault_account_asset(self, vault_account_id, asset):
+        self.asset_created = True
+        data = type("Resp", (), {"data": type("Data", (), {"address": "ADDR123"})()})()
+        return DummyFuture(data)
+
 
 class DummyClient:
-    def __init__(self):
-        self.vaults = DummyVaults()
+    def __init__(self, vaults=None):
+        self.vaults = vaults or DummyVaults()
 
     def __enter__(self):
         return self
@@ -77,4 +90,22 @@ def test_create_vault_account(monkeypatch):
     assert result == {"vault_account_id": "1", "name": "alice"}
     assert dummy_client.vaults.generate_called is False
     assert dummy_client.vaults.get_called is False
+
+
+def test_create_asset_for_vault(monkeypatch):
+    vaults = DummyVaults(existing_assets=[])
+    dummy_client = DummyClient(vaults)
+    monkeypatch.setattr(fireblocks, "get_fireblocks_client", lambda: dummy_client)
+    address = asyncio.run(fireblocks.create_asset_for_vault("1", "BTC"))
+    assert address == "ADDR123"
+    assert dummy_client.vaults.asset_created is True
+
+
+def test_create_asset_for_vault_existing(monkeypatch):
+    vaults = DummyVaults(existing_assets=["BTC"])
+    dummy_client = DummyClient(vaults)
+    monkeypatch.setattr(fireblocks, "get_fireblocks_client", lambda: dummy_client)
+    with pytest.raises(fireblocks.AssetAlreadyExistsError):
+        asyncio.run(fireblocks.create_asset_for_vault("1", "BTC"))
+    assert dummy_client.vaults.asset_created is False
 
