@@ -42,7 +42,7 @@ class DummyVaults:
     def __init__(self, existing=None):
         self.existing = existing or []
 
-    def get_vault_accounts(self, name_prefix):
+    def get_vault_accounts_with_paging(self, name_prefix):
         accounts = [type("Acc", (), acc)() for acc in self.existing if acc["name"].startswith(name_prefix)]
         data = type("Resp", (), {"data": accounts})()
         return DummyFuture(data)
