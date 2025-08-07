@@ -71,9 +71,10 @@ def setup_route(monkeypatch):
     user_mod = types.ModuleType("app.models.user")
 
     class User:  # pragma: no cover - simple data container
-        def __init__(self, id, email_verified=True):
+        def __init__(self, id, email_verified=True, has_vault=False):
             self.id = id
             self.email_verified = email_verified
+            self.has_vault = has_vault
 
     user_mod.User = User
     monkeypatch.setitem(sys.modules, "app.models.user", user_mod)
@@ -243,4 +244,25 @@ def test_creating_wallet_for_existing_asset_returns_existing(monkeypatch):
 
     assert wallet1 is wallet2
     assert calls == []
+
+
+def test_create_vault(monkeypatch):
+    create_user_wallet, User, DummySession, calls = setup_route(monkeypatch)
+    from app.routes.wallet import create_user_vault
+
+    session = DummySession()
+    user = User(id="user-1", email_verified=True)
+
+    vault = asyncio.run(create_user_vault("BTC_TEST", current_user=user, db=session))
+
+    assert vault.vault_id == "V1"
+    assert user.has_vault is True
+    assert calls == [("create_vault_account", "user-1", "BTC_TEST")]
+
+    try:
+        asyncio.run(create_user_vault("BTC_TEST", current_user=user, db=session))
+        assert False, "Expected HTTPException"
+    except Exception as exc:
+        assert getattr(exc, "status_code", None) == 400
+    assert calls == [("create_vault_account", "user-1", "BTC_TEST")]
 
