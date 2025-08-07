@@ -11,6 +11,7 @@ class UserOut(BaseModel):
     id: UUID
     email: EmailStr
     is_active: bool
+    has_vault: bool
     created_at: datetime
     updated_at: datetime
     referral_code: Optional[str] = None
