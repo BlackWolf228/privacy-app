@@ -149,8 +149,11 @@ def test_create_transfer_creates_transaction(monkeypatch):
         "type": "ONE_TIME_ADDRESS",
         "oneTimeAddress": {"address": "ADDR"},
     }
-    assert isinstance(request["amount"], TransactionRequestAmount)
-    assert request["amount"].amount == "0.1"
+    # The request should now contain a plain string amount and a structured
+    # ``amountInfo`` object for backwards compatibility.
+    assert request["amount"] == "0.1"
+    assert isinstance(request["amountInfo"], TransactionRequestAmount)
+    assert request["amountInfo"].amount == "0.1"
     assert result["id"] == "T1"
     assert result["status"] == "COMPLETED"
 
@@ -193,7 +196,8 @@ def test_transfer_between_vault_accounts(monkeypatch):
     assert request["assetId"] == "BTC_TEST"
     assert request["source"] == {"type": "VAULT_ACCOUNT", "id": "V1"}
     assert request["destination"] == {"type": "VAULT_ACCOUNT", "id": "V2"}
-    assert isinstance(request["amount"], TransactionRequestAmount)
-    assert request["amount"].amount == "0.1"
+    assert request["amount"] == "0.1"
+    assert isinstance(request["amountInfo"], TransactionRequestAmount)
+    assert request["amountInfo"].amount == "0.1"
     assert result["id"] == "T2"
     assert result["status"] == "COMPLETED"
