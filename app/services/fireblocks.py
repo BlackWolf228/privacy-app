@@ -33,7 +33,12 @@ async def create_vault_account(name: str, asset: str):
     def sync_call():
         with get_fireblocks_client() as client:
             # Verifică dacă există deja un vault cu acest nume
-            existing_future = client.vaults.get_vault_accounts_with_paging(name_prefix=name)
+            try:
+                get_accounts = client.vaults.get_vault_accounts_with_paging
+            except AttributeError:
+                get_accounts = client.vaults.get_vault_accounts
+
+            existing_future = get_accounts(name_prefix=name)
             existing_accounts = existing_future.result().data
 
             if existing_accounts:

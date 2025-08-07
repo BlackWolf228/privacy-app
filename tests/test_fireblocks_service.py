@@ -47,6 +47,11 @@ class DummyVaults:
         data = type("Resp", (), {"data": accounts})()
         return DummyFuture(data)
 
+    def get_vault_accounts(self, name_prefix):
+        accounts = [type("Acc", (), acc)() for acc in self.existing if acc["name"].startswith(name_prefix)]
+        data = type("Resp", (), {"data": accounts})()
+        return DummyFuture(data)
+
     def create_vault_account(self, request):
         data = type("Resp", (), {"data": type("Data", (), {"id": "1", "name": request.name})()})()
         return DummyFuture(data)
@@ -62,6 +67,38 @@ class DummyVaults:
 class DummyClient:
     def __init__(self, existing=None):
         self.vaults = DummyVaults(existing)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        pass
+
+
+class DummyVaultsNoPaging:
+    def __init__(self, existing=None):
+        self.existing = existing or []
+
+    def get_vault_accounts(self, name_prefix):
+        accounts = [type("Acc", (), acc)() for acc in self.existing if acc["name"].startswith(name_prefix)]
+        data = type("Resp", (), {"data": accounts})()
+        return DummyFuture(data)
+
+    def create_vault_account(self, request):
+        data = type("Resp", (), {"data": type("Data", (), {"id": "1", "name": request.name})()})()
+        return DummyFuture(data)
+
+    def generate_new_address(self, vault_account_id, asset):
+        return DummyFuture(None)
+
+    def get_deposit_address(self, vault_account_id, asset):
+        data = type("Resp", (), {"data": type("Data", (), {"address": "ADDR123"})()})()
+        return DummyFuture(data)
+
+
+class DummyClientNoPaging:
+    def __init__(self, existing=None):
+        self.vaults = DummyVaultsNoPaging(existing)
 
     def __enter__(self):
         return self
@@ -87,6 +124,18 @@ def test_create_vault_account_existing(monkeypatch):
     result = asyncio.run(fireblocks.create_vault_account("alice", "BTC_TEST"))
     assert result == {
         "vault_account_id": "5",
+        "name": "alice",
+        "asset": "BTC_TEST",
+        "address": "ADDR123",
+    }
+
+
+def test_create_vault_account_existing_no_paging(monkeypatch):
+    existing = [{"id": "7", "name": "alice"}]
+    monkeypatch.setattr(fireblocks, "get_fireblocks_client", lambda: DummyClientNoPaging(existing))
+    result = asyncio.run(fireblocks.create_vault_account("alice", "BTC_TEST"))
+    assert result == {
+        "vault_account_id": "7",
         "name": "alice",
         "asset": "BTC_TEST",
         "address": "ADDR123",
