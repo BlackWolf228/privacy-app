@@ -8,7 +8,11 @@ from app.models.wallet_log import WalletLog
 from app.models.vault import Vault
 from app.schemas.wallet import WalletOut, WalletBalance, WithdrawalRequest, WithdrawalResponse
 from app.utils.auth import get_current_user
-from app.services.fireblocks import create_vault_account, create_asset_for_vault
+from app.services.fireblocks import (
+    create_vault_account,
+    create_asset_for_vault,
+    get_wallet_balance,
+)
 
 router = APIRouter(prefix="/wallets", tags=["Wallets"])
 

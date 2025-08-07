@@ -146,8 +146,13 @@ def setup_route(monkeypatch):
         calls.append(("create_asset_for_vault", vault_id, asset))
         return f"ADDR_{asset}"
 
+    async def get_wallet_balance(vault_id: str, asset: str):
+        calls.append(("get_wallet_balance", vault_id, asset))
+        return {"amount": "0", "currency": asset}
+
     fireblocks_mod.create_vault_account = create_vault_account
     fireblocks_mod.create_asset_for_vault = create_asset_for_vault
+    fireblocks_mod.get_wallet_balance = get_wallet_balance
     monkeypatch.setitem(sys.modules, "app.services.fireblocks", fireblocks_mod)
 
     # Stub database dependency

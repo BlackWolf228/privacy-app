@@ -71,3 +71,20 @@ async def create_vault_account(name: str):
             }
 
     return await asyncio.to_thread(sync_call)
+
+
+async def get_wallet_balance(vault_account_id: str, asset: str):
+    """Fetch the balance for ``asset`` in the specified ``vault_account_id``."""
+
+    def sync_call():
+        with get_fireblocks_client() as client:
+            future = client.vaults.get_vault_balance_by_asset(
+                vault_account_id, asset
+            )
+            response = future.result()
+            data = response.data
+            amount = getattr(data, "balance", None) or getattr(data, "amount", None)
+            currency = getattr(data, "id", asset)
+            return {"amount": amount, "currency": currency}
+
+    return await asyncio.to_thread(sync_call)
