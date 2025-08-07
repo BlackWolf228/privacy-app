@@ -17,6 +17,9 @@ client_config_mod = types.ModuleType("fireblocks.client_configuration")
 base_path_mod = types.ModuleType("fireblocks.base_path")
 models_mod = types.ModuleType("fireblocks.models")
 models_request_mod = types.ModuleType("fireblocks.models.create_vault_account_request")
+models_tx_amount_mod = types.ModuleType(
+    "fireblocks.models.transaction_request_amount"
+)
 
 class Fireblocks:  # pragma: no cover - simple placeholder
     pass
@@ -32,10 +35,16 @@ class CreateVaultAccountRequest:  # pragma: no cover - simple placeholder
     def __init__(self, *args, **kwargs):
         pass
 
+
+class TransactionRequestAmount:  # pragma: no cover - simple placeholder
+    def __init__(self, amount):
+        self.amount = amount
+
 client_mod.Fireblocks = Fireblocks
 client_config_mod.ClientConfiguration = ClientConfiguration
 base_path_mod.BasePath = BasePath
 models_request_mod.CreateVaultAccountRequest = CreateVaultAccountRequest
+models_tx_amount_mod.TransactionRequestAmount = TransactionRequestAmount
 
 sys.modules.update(
     {
@@ -45,10 +54,12 @@ sys.modules.update(
         "fireblocks.base_path": base_path_mod,
         "fireblocks.models": models_mod,
         "fireblocks.models.create_vault_account_request": models_request_mod,
+        "fireblocks.models.transaction_request_amount": models_tx_amount_mod,
     }
 )
 
 from app.services import fireblocks as fb
+from fireblocks.models.transaction_request_amount import TransactionRequestAmount
 
 
 def test_get_wallet_balance_uses_vault_account_asset(monkeypatch):
@@ -130,17 +141,16 @@ def test_create_transfer_creates_transaction(monkeypatch):
         fb.create_transfer("V1", "BTC_TEST", "0.1", "ADDR")
     )
 
-    assert dummy_client.transactions.calls == [
-        {
-            "assetId": "BTC_TEST",
-            "source": {"type": "VAULT_ACCOUNT", "id": "V1"},
-            "destination": {
-                "type": "ONE_TIME_ADDRESS",
-                "oneTimeAddress": {"address": "ADDR"},
-            },
-            "amount": "0.1",
-        }
-    ]
+    assert len(dummy_client.transactions.calls) == 1
+    request = dummy_client.transactions.calls[0]
+    assert request["assetId"] == "BTC_TEST"
+    assert request["source"] == {"type": "VAULT_ACCOUNT", "id": "V1"}
+    assert request["destination"] == {
+        "type": "ONE_TIME_ADDRESS",
+        "oneTimeAddress": {"address": "ADDR"},
+    }
+    assert isinstance(request["amount"], TransactionRequestAmount)
+    assert request["amount"].amount == "0.1"
     assert result["id"] == "T1"
     assert result["status"] == "COMPLETED"
 
@@ -180,11 +190,10 @@ def test_transfer_between_vault_accounts(monkeypatch):
     assert len(dummy_client.transactions.calls) == 1
     idempotency_key, request = dummy_client.transactions.calls[0]
     assert isinstance(idempotency_key, str) and len(idempotency_key) == 32
-    assert request == {
-        "assetId": "BTC_TEST",
-        "source": {"type": "VAULT_ACCOUNT", "id": "V1"},
-        "destination": {"type": "VAULT_ACCOUNT", "id": "V2"},
-        "amount": "0.1",
-    }
+    assert request["assetId"] == "BTC_TEST"
+    assert request["source"] == {"type": "VAULT_ACCOUNT", "id": "V1"}
+    assert request["destination"] == {"type": "VAULT_ACCOUNT", "id": "V2"}
+    assert isinstance(request["amount"], TransactionRequestAmount)
+    assert request["amount"].amount == "0.1"
     assert result["id"] == "T2"
     assert result["status"] == "COMPLETED"
