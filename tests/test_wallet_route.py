@@ -5,7 +5,7 @@ import uuid
 from pathlib import Path
 
 
-def test_create_wallet_skips_existing_other_currency(monkeypatch):
+def setup_route(monkeypatch):
     # Stub FastAPI components
     fastapi_stub = types.ModuleType("fastapi")
 
@@ -78,7 +78,7 @@ def test_create_wallet_skips_existing_other_currency(monkeypatch):
     user_mod.User = User
     monkeypatch.setitem(sys.modules, "app.models.user", user_mod)
 
-    class WalletField:
+    class Field:
         def __init__(self, name):
             self.name = name
 
@@ -88,9 +88,9 @@ def test_create_wallet_skips_existing_other_currency(monkeypatch):
     wallet_mod = types.ModuleType("app.models.wallet")
 
     class Wallet:  # pragma: no cover - simple container
-        user_id = WalletField("user_id")
-        currency = WalletField("currency")
-        network = WalletField("network")
+        user_id = Field("user_id")
+        currency = Field("currency")
+        network = Field("network")
 
         def __init__(self, user_id, vault_id, address, currency, network):
             self.user_id = user_id
@@ -104,6 +104,18 @@ def test_create_wallet_skips_existing_other_currency(monkeypatch):
     wallet_mod.Wallet = Wallet
     monkeypatch.setitem(sys.modules, "app.models.wallet", wallet_mod)
 
+    vault_mod = types.ModuleType("app.models.vault")
+
+    class Vault:  # pragma: no cover - simple container
+        user_id = Field("user_id")
+
+        def __init__(self, vault_id, user_id):
+            self.vault_id = vault_id
+            self.user_id = user_id
+
+    vault_mod.Vault = Vault
+    monkeypatch.setitem(sys.modules, "app.models.vault", vault_mod)
+
     wallet_log_mod = types.ModuleType("app.models.wallet_log")
 
     class WalletLog:  # pragma: no cover - placeholder
@@ -113,16 +125,6 @@ def test_create_wallet_skips_existing_other_currency(monkeypatch):
     wallet_log_mod.WalletLog = WalletLog
     monkeypatch.setitem(sys.modules, "app.models.wallet_log", wallet_log_mod)
 
-    vault_mod = types.ModuleType("app.models.vault")
-
-    class Vault:  # pragma: no cover - placeholder
-        def __init__(self, vault_id, user_id):
-            self.vault_id = vault_id
-            self.user_id = user_id
-
-    vault_mod.Vault = Vault
-    monkeypatch.setitem(sys.modules, "app.models.vault", vault_mod)
-
     # Stub Pydantic schemas
     schemas_wallet_mod = types.ModuleType("app.schemas.wallet")
     for name in ["WalletOut", "WalletBalance", "WithdrawalRequest", "WithdrawalResponse"]:
@@ -131,15 +133,22 @@ def test_create_wallet_skips_existing_other_currency(monkeypatch):
 
     # Stub Fireblocks service
     fireblocks_mod = types.ModuleType("app.services.fireblocks")
+    calls: list[tuple[str, str, str]] = []
 
     async def create_vault_account(name: str, asset: str):
+        calls.append(("create_vault_account", name, asset))
         return {
-            "vault_account_id": "2",
-            "address": "ADDR123",
+            "vault_account_id": "V1",
+            "address": f"ADDR_{asset}",
             "asset": asset,
         }
 
+    async def generate_address_for_vault(vault_id: str, asset: str):
+        calls.append(("generate_address_for_vault", vault_id, asset))
+        return f"ADDR_{asset}"
+
     fireblocks_mod.create_vault_account = create_vault_account
+    fireblocks_mod.generate_address_for_vault = generate_address_for_vault
     monkeypatch.setitem(sys.modules, "app.services.fireblocks", fireblocks_mod)
 
     # Stub database dependency
@@ -163,33 +172,41 @@ def test_create_wallet_skips_existing_other_currency(monkeypatch):
     # Ensure repository root is on sys.path for imports
     sys.path.append(str(Path(__file__).resolve().parents[1]))
 
-    # Import the function under test
-    from app.routes.wallet import create_user_wallet, Wallet as RouteWallet
+    # Reload route module each time to pick up stubs
+    sys.modules.pop("app.routes.wallet", None)
+    from app.routes.wallet import create_user_wallet
+    from app.models.wallet import Wallet as RouteWallet
+    from app.models.vault import Vault as RouteVault
 
     class DummyResult:
-        def __init__(self, wallet):
-            self._wallet = wallet
+        def __init__(self, value):
+            self._value = value
 
         def scalar_one_or_none(self):
-            return self._wallet
+            return self._value
 
     class DummySession:
-        def __init__(self, wallet):
-            self.wallet = wallet
+        def __init__(self):
+            self.vault = None
+            self.wallets: list[RouteWallet] = []
 
         async def execute(self, query):
-            # Ensure query filters by user, currency and network
-            assert ("currency", "BTC_TEST") in query.filters
-            assert ("network", "FIREBLOCKS") in query.filters
-            assert ("user_id", self.wallet.user_id) in query.filters
-
-            if self.wallet and all(getattr(self.wallet, f[0]) == f[1] for f in query.filters):
-                return DummyResult(self.wallet)
+            if query.model is RouteWallet:
+                for w in self.wallets:
+                    if all(getattr(w, f[0]) == f[1] for f in query.filters):
+                        return DummyResult(w)
+                return DummyResult(None)
+            if query.model is RouteVault:
+                if self.vault and all(getattr(self.vault, f[0]) == f[1] for f in query.filters):
+                    return DummyResult(self.vault)
+                return DummyResult(None)
             return DummyResult(None)
 
         def add(self, obj):
             if isinstance(obj, RouteWallet):
-                self.wallet = obj
+                self.wallets.append(obj)
+            elif isinstance(obj, RouteVault):
+                self.vault = obj
 
         async def commit(self):
             pass
@@ -197,19 +214,33 @@ def test_create_wallet_skips_existing_other_currency(monkeypatch):
         async def refresh(self, obj):
             pass
 
+    return create_user_wallet, User, DummySession, calls
+
+
+def test_multiple_wallet_creations_reuse_same_vault(monkeypatch):
+    create_user_wallet, User, DummySession, calls = setup_route(monkeypatch)
+    session = DummySession()
     user = User(id="user-1", email_verified=True)
-    existing = RouteWallet(
-        user_id=user.id,
-        vault_id="1",
-        address="",
-        currency="VAULT",
-        network="FIREBLOCKS",
-    )
-    session = DummySession(existing)
 
-    result = asyncio.run(create_user_wallet(current_user=user, db=session))
+    wallet1 = asyncio.run(create_user_wallet("BTC_TEST", current_user=user, db=session))
+    wallet2 = asyncio.run(create_user_wallet("ETH_TEST", current_user=user, db=session))
 
-    assert result.vault_id == "2"
-    assert result.address == "ADDR123"
-    assert result.currency == "BTC_TEST"
+    assert wallet1.vault_id == wallet2.vault_id
+    assert calls == [
+        ("create_vault_account", "user-1", "BTC_TEST"),
+        ("generate_address_for_vault", "V1", "ETH_TEST"),
+    ]
+
+
+def test_creating_wallet_for_existing_asset_returns_existing(monkeypatch):
+    create_user_wallet, User, DummySession, calls = setup_route(monkeypatch)
+    session = DummySession()
+    user = User(id="user-1", email_verified=True)
+
+    wallet1 = asyncio.run(create_user_wallet("BTC_TEST", current_user=user, db=session))
+    calls.clear()
+    wallet2 = asyncio.run(create_user_wallet("BTC_TEST", current_user=user, db=session))
+
+    assert wallet1 is wallet2
+    assert calls == []
 

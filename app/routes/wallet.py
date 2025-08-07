@@ -8,22 +8,20 @@ from app.models.wallet_log import WalletLog
 from app.models.vault import Vault
 from app.schemas.wallet import WalletOut, WalletBalance, WithdrawalRequest, WithdrawalResponse
 from app.utils.auth import get_current_user
-from app.services.fireblocks import create_vault_account
+from app.services.fireblocks import create_vault_account, generate_address_for_vault
 
 router = APIRouter(prefix="/wallets", tags=["Wallets"])
 
 @router.post("/", response_model=WalletOut)
 async def create_user_wallet(
+    asset: str,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     if not current_user.email_verified:
         raise HTTPException(status_code=400, detail="Email not verified")
 
-    # Creează un vault nou și obține adresa inițială
-    asset = "BTC_TEST"  # Sau "ETH_TEST5" dacă l-ai activat
-
-    # Verifică dacă wallet-ul pentru acest asset și network există deja
+    # Check if wallet for this asset already exists
     result = await db.execute(
         select(Wallet).where(
             Wallet.user_id == current_user.id,
@@ -31,22 +29,24 @@ async def create_user_wallet(
             Wallet.network == "FIREBLOCKS",
         )
     )
-    existing = result.scalar_one_or_none()
-    if existing:
-        return existing
+    existing_wallet = result.scalar_one_or_none()
+    if existing_wallet:
+        return existing_wallet
 
-    vault_data = await create_vault_account(str(current_user.id), asset)
-    vault_account_id = vault_data["vault_account_id"]
-    address = vault_data["address"]
-    asset = vault_data["asset"]
+    # Fetch or create the user's vault
+    result = await db.execute(select(Vault).where(Vault.user_id == current_user.id))
+    vault = result.scalar_one_or_none()
 
-    # Creează intrarea de vault
-    vault = Vault(vault_id=vault_account_id, user_id=current_user.id)
-    db.add(vault)
-    await db.commit()
-    await db.refresh(vault)
+    if vault is None:
+        vault_data = await create_vault_account(str(current_user.id), asset)
+        vault = Vault(vault_id=vault_data["vault_account_id"], user_id=current_user.id)
+        address = vault_data["address"]
+        db.add(vault)
+        await db.commit()
+        await db.refresh(vault)
+    else:
+        address = await generate_address_for_vault(vault.vault_id, asset)
 
-    # Salvează wallet în DB
     wallet = Wallet(
         user_id=current_user.id,
         vault_id=vault.vault_id,
@@ -58,7 +58,6 @@ async def create_user_wallet(
     await db.commit()
     await db.refresh(wallet)
 
-    # Log
     log = WalletLog(
         vault_id=vault.vault_id,
         network="FIREBLOCKS",
