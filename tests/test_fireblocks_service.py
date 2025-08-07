@@ -138,7 +138,7 @@ def test_create_transfer_creates_transaction(monkeypatch):
                 "type": "ONE_TIME_ADDRESS",
                 "oneTimeAddress": {"address": "ADDR"},
             },
-            "amount": "0.1",
+            "amount": {"amount": "0.1"},
         }
     ]
     assert result["id"] == "T1"
@@ -184,7 +184,7 @@ def test_transfer_between_vault_accounts(monkeypatch):
         "assetId": "BTC_TEST",
         "source": {"type": "VAULT_ACCOUNT", "id": "V1"},
         "destination": {"type": "VAULT_ACCOUNT", "id": "V2"},
-        "amount": "0.1",
+        "amount": {"amount": "0.1"},
     }
     assert result["id"] == "T2"
     assert result["status"] == "COMPLETED"
