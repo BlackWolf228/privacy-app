@@ -16,7 +16,7 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.add_column('users', sa.Column('privacy_id', sa.String(length=10), nullable=False))
+    op.add_column('users', sa.Column('privacy_id', sa.String(length=10), nullable=True))
     op.add_column('users', sa.Column('username', sa.String(), nullable=True))
     op.create_unique_constraint('uq_users_privacy_id', 'users', ['privacy_id'])
     op.create_unique_constraint('uq_users_username', 'users', ['username'])

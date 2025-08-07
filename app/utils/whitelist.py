@@ -1,5 +1,5 @@
 WHITELISTED_EMAILS = {
-    "test1@test.com",
+    "buza.dan@proton.me",
     "andrei@payinprivacy.com",
     "admin@example.com",
     "dan@payinprivacy.com",
