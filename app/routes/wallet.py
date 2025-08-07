@@ -1,23 +1,13 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
-
 from app.database import get_db
 from app.models.user import User
 from app.models.wallet import Wallet
 from app.models.wallet_log import WalletLog
-from app.schemas.wallet import (
-    WalletOut,
-    WalletBalance,
-    WithdrawalRequest,
-    WithdrawalResponse,
-)
-from app.services.fireblocks import (
-    create_vault_account,
-    get_wallet_balance,
-    create_transfer,
-)
+from app.schemas.wallet import WalletOut, WalletBalance, WithdrawalRequest, WithdrawalResponse
 from app.utils.auth import get_current_user
+from app.services.fireblocks import create_vault_account
 
 router = APIRouter(prefix="/wallets", tags=["Wallets"])
 
@@ -29,6 +19,7 @@ async def create_user_wallet(
     if not current_user.email_verified:
         raise HTTPException(status_code=400, detail="Email not verified")
 
+    # Verifică dacă wallet-ul există deja
     result = await db.execute(
         select(Wallet).where(Wallet.user_id == current_user.id)
     )
@@ -36,29 +27,39 @@ async def create_user_wallet(
     if existing:
         return existing
 
-    data = await create_vault_account(str(current_user.id))
+    # Creează un vault nou și obține adresa inițială
+    asset = "BTC_TEST"  # Sau "ETH_TEST5" dacă l-ai activat
+    vault_data = await create_vault_account(str(current_user.id), asset)
+    vault_id = vault_data["vault_account_id"]
+    address = vault_data["address"]
+    asset = vault_data["asset"]
+
+    # Salvează wallet în DB
     wallet = Wallet(
         user_id=current_user.id,
-        wallet_id=data["vault_account_id"],
-        address="",
-        currency="VAULT",
+        wallet_id=vault_id,
+        address=address,
+        currency=asset,
         network="FIREBLOCKS",
     )
     db.add(wallet)
     await db.commit()
     await db.refresh(wallet)
 
+    # Log
     log = WalletLog(
-        wallet_id=wallet.wallet_id,
-        network=wallet.network,
-        address=wallet.address,
+        wallet_id=vault_id,
+        network="FIREBLOCKS",
+        address=address,
         balance=None,
         status="created",
         action="wallet.created",
     )
     db.add(log)
     await db.commit()
+
     return wallet
+
 
 @router.get("/{wallet_id}/balance", response_model=WalletBalance)
 async def wallet_balance(
@@ -91,6 +92,7 @@ async def wallet_balance(
     await db.commit()
 
     return WalletBalance(wallet_id=wallet.wallet_id, amount=data["amount"], asset=data["currency"])
+
 
 @router.post("/{wallet_id}/withdraw", response_model=WithdrawalResponse)
 async def withdraw_from_wallet(
