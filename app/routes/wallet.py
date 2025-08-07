@@ -19,16 +19,21 @@ async def create_user_wallet(
     if not current_user.email_verified:
         raise HTTPException(status_code=400, detail="Email not verified")
 
-    # Verifică dacă wallet-ul există deja
+    # Creează un vault nou și obține adresa inițială
+    asset = "BTC_TEST"  # Sau "ETH_TEST5" dacă l-ai activat
+
+    # Verifică dacă wallet-ul pentru acest asset și network există deja
     result = await db.execute(
-        select(Wallet).where(Wallet.user_id == current_user.id)
+        select(Wallet).where(
+            Wallet.user_id == current_user.id,
+            Wallet.currency == asset,
+            Wallet.network == "FIREBLOCKS",
+        )
     )
     existing = result.scalar_one_or_none()
     if existing:
         return existing
 
-    # Creează un vault nou și obține adresa inițială
-    asset = "BTC_TEST"  # Sau "ETH_TEST5" dacă l-ai activat
     vault_data = await create_vault_account(str(current_user.id), asset)
     vault_id = vault_data["vault_account_id"]
     address = vault_data["address"]
