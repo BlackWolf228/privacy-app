@@ -5,6 +5,7 @@ from app.database import get_db
 from app.models.user import User
 from app.models.wallet import Wallet
 from app.models.wallet_log import WalletLog
+from app.models.vault import Vault
 from app.schemas.wallet import WalletOut, WalletBalance, WithdrawalRequest, WithdrawalResponse
 from app.utils.auth import get_current_user
 from app.services.fireblocks import create_vault_account
@@ -35,14 +36,20 @@ async def create_user_wallet(
         return existing
 
     vault_data = await create_vault_account(str(current_user.id), asset)
-    vault_id = vault_data["vault_account_id"]
+    vault_account_id = vault_data["vault_account_id"]
     address = vault_data["address"]
     asset = vault_data["asset"]
+
+    # Creează intrarea de vault
+    vault = Vault(vault_id=vault_account_id, user_id=current_user.id)
+    db.add(vault)
+    await db.commit()
+    await db.refresh(vault)
 
     # Salvează wallet în DB
     wallet = Wallet(
         user_id=current_user.id,
-        wallet_id=vault_id,
+        vault_id=vault.vault_id,
         address=address,
         currency=asset,
         network="FIREBLOCKS",
@@ -53,7 +60,7 @@ async def create_user_wallet(
 
     # Log
     log = WalletLog(
-        wallet_id=vault_id,
+        vault_id=vault.vault_id,
         network="FIREBLOCKS",
         address=address,
         balance=None,
@@ -66,16 +73,16 @@ async def create_user_wallet(
     return wallet
 
 
-@router.get("/{wallet_id}/balance", response_model=WalletBalance)
+@router.get("/{vault_id}/balance", response_model=WalletBalance)
 async def wallet_balance(
-    wallet_id: str,
+    vault_id: str,
     asset: str,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     result = await db.execute(
         select(Wallet).where(
-            Wallet.wallet_id == wallet_id,
+            Wallet.vault_id == vault_id,
             Wallet.user_id == current_user.id,
         )
     )
@@ -83,10 +90,10 @@ async def wallet_balance(
     if wallet is None:
         raise HTTPException(status_code=404, detail="Wallet not found")
 
-    data = await get_wallet_balance(wallet.wallet_id, asset)
+    data = await get_wallet_balance(wallet.vault_id, asset)
 
     log = WalletLog(
-        wallet_id=wallet.wallet_id,
+        vault_id=wallet.vault_id,
         network=wallet.network,
         address=wallet.address,
         balance=data.get("amount"),
@@ -96,19 +103,19 @@ async def wallet_balance(
     db.add(log)
     await db.commit()
 
-    return WalletBalance(wallet_id=wallet.wallet_id, amount=data["amount"], asset=data["currency"])
+    return WalletBalance(vault_id=wallet.vault_id, amount=data["amount"], asset=data["currency"])
 
 
-@router.post("/{wallet_id}/withdraw", response_model=WithdrawalResponse)
+@router.post("/{vault_id}/withdraw", response_model=WithdrawalResponse)
 async def withdraw_from_wallet(
-    wallet_id: str,
+    vault_id: str,
     payload: WithdrawalRequest,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     result = await db.execute(
         select(Wallet).where(
-            Wallet.wallet_id == wallet_id,
+            Wallet.vault_id == vault_id,
             Wallet.user_id == current_user.id,
         )
     )
@@ -117,11 +124,11 @@ async def withdraw_from_wallet(
         raise HTTPException(status_code=404, detail="Wallet not found")
 
     transfer = await create_transfer(
-        wallet.wallet_id, payload.asset, payload.amount, payload.address
+        wallet.vault_id, payload.asset, payload.amount, payload.address
     )
 
     log = WalletLog(
-        wallet_id=wallet.wallet_id,
+        vault_id=wallet.vault_id,
         network=wallet.network,
         address=payload.address,
         balance=payload.amount,
