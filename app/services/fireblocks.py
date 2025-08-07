@@ -161,7 +161,14 @@ async def create_transfer(
                 },
                 "amount": amount,
             }
-            future = client.transactions.create_transaction(tx_request)
+            # The Fireblocks SDK expects keyword arguments for optional
+            # parameters.  Passing the transaction request positionally causes
+            # it to be interpreted as the ``x_end_user_wallet_id`` value which
+            # then fails validation.  Use an explicit keyword argument so the
+            # request is parsed correctly.
+            future = client.transactions.create_transaction(
+                transaction_request=tx_request
+            )
             response = future.result()
             data = getattr(response, "data", response)
             return {
@@ -208,7 +215,16 @@ async def transfer_between_vault_accounts(
                 "amount": amount,
             }
             idempotency_key = uuid.uuid4().hex
-            future = client.transactions.create_transaction(idempotency_key, tx_request)
+            # Similar to the external transfer above, the SDK validates
+            # positional arguments against ``x_end_user_wallet_id`` and
+            # ``idempotency_key``.  When the transaction request is supplied as
+            # a positional argument it is treated as the idempotency key,
+            # resulting in a Pydantic validation error.  Supplying keyword
+            # arguments ensures correct parameter mapping.
+            future = client.transactions.create_transaction(
+                idempotency_key=idempotency_key,
+                transaction_request=tx_request,
+            )
             response = future.result()
             data = getattr(response, "data", response)
             return {
