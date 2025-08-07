@@ -9,10 +9,6 @@ from app.schemas.wallet import WalletOut, WalletBalance, WithdrawalRequest, With
 from app.utils.auth import get_current_user
 from app.services.fireblocks import create_vault_account
 
-import asyncio
-from fireblocks.client import Fireblocks
-from app.services.fireblocks import get_fireblocks_client
-
 router = APIRouter(prefix="/wallets", tags=["Wallets"])
 
 @router.post("/", response_model=WalletOut)
@@ -31,18 +27,12 @@ async def create_user_wallet(
     if existing:
         return existing
 
-    # Creează un vault nou
-    vault_data = await create_vault_account(str(current_user.id))
-    vault_id = vault_data["vault_account_id"]
-
+    # Creează un vault nou și obține adresa inițială
     asset = "BTC_TEST"  # Sau "ETH_TEST5" dacă l-ai activat
-    address_data = await asyncio.to_thread(
-        lambda: get_fireblocks_client().vaults.generate_new_address(vault_id, asset)
-    )
-    address_info = await asyncio.to_thread(
-        lambda: get_fireblocks_client().vaults.get_deposit_address(vault_id, asset)
-    )
-    address = address_info.get("address", "")
+    vault_data = await create_vault_account(str(current_user.id), asset)
+    vault_id = vault_data["vault_account_id"]
+    address = vault_data["address"]
+    asset = vault_data["asset"]
 
     # Salvează wallet în DB
     wallet = Wallet(
