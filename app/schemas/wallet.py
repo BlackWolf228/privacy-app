@@ -14,7 +14,7 @@ class WalletOut(BaseModel):
         from_attributes = True
 
 class WalletBalance(BaseModel):
-    vault_id: str
+    wallet_id: UUID
     amount: str
     asset: str
 
