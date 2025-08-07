@@ -111,3 +111,96 @@ async def get_wallet_balance(vault_account_id: str, asset: str):
             return {"amount": amount, "currency": currency}
 
     return await asyncio.to_thread(sync_call)
+
+
+async def create_transfer(
+    vault_account_id: str, asset: str, amount: str, destination_address: str
+):
+    """Create a transfer from a vault account to an external address.
+
+    Parameters
+    ----------
+    vault_account_id:
+        The identifier of the source vault account.
+    asset:
+        The asset symbol to transfer.
+    amount:
+        The amount to be transferred as a string to avoid precision issues.
+    destination_address:
+        The blockchain address where the funds should be sent.
+
+    Returns
+    -------
+    dict
+        A dictionary containing the transaction ``id`` and ``status`` as
+        reported by Fireblocks.  The exact fields returned by the SDK may vary,
+        so unknown attributes are safely accessed using :func:`getattr`.
+    """
+
+    def sync_call() -> dict:
+        with get_fireblocks_client() as client:
+            tx_request = {
+                "assetId": asset,
+                "source": {"type": "VAULT_ACCOUNT", "id": vault_account_id},
+                "destination": {
+                    "type": "ONE_TIME_ADDRESS",
+                    "oneTimeAddress": {"address": destination_address},
+                },
+                "amount": amount,
+            }
+            future = client.transactions.create_transaction(tx_request)
+            response = future.result()
+            data = getattr(response, "data", response)
+            return {
+                "id": getattr(data, "id", None),
+                "status": getattr(data, "status", None),
+                "state": getattr(data, "state", None),
+            }
+
+    return await asyncio.to_thread(sync_call)
+
+
+async def transfer_between_vault_accounts(
+    source_vault_id: str, destination_vault_id: str, asset: str, amount: str
+):
+    """Transfer assets between two Fireblocks vault accounts.
+
+    This helper wraps the SDK's ``transfer_between_vault_accounts`` call and
+    returns a small dictionary with the resulting transaction ``id`` and
+    ``status``/``state`` fields.  The Fireblocks SDK returns different shapes
+    depending on version so attributes are accessed defensively via
+    :func:`getattr`.
+
+    Parameters
+    ----------
+    source_vault_id:
+        Identifier of the vault from which funds will be debited.
+    destination_vault_id:
+        Identifier of the vault that will receive the funds.
+    asset:
+        Asset symbol to transfer.
+    amount:
+        Amount of ``asset`` to transfer as a string.
+    """
+
+    def sync_call() -> dict:
+        with get_fireblocks_client() as client:
+            tx_request = {
+                "assetId": asset,
+                "source": {"type": "VAULT_ACCOUNT", "id": source_vault_id},
+                "destination": {
+                    "type": "VAULT_ACCOUNT",
+                    "id": destination_vault_id,
+                },
+                "amount": amount,
+            }
+            future = client.transfer_between_vault_accounts(tx_request)
+            response = future.result()
+            data = getattr(response, "data", response)
+            return {
+                "id": getattr(data, "id", None),
+                "status": getattr(data, "status", None),
+                "state": getattr(data, "state", None),
+            }
+
+    return await asyncio.to_thread(sync_call)

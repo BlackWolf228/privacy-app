@@ -84,3 +84,90 @@ def test_get_wallet_balance_uses_vault_account_asset(monkeypatch):
 
     assert dummy_client.vaults.calls == [("V1", "BTC_TEST")]
     assert result == {"amount": "10", "currency": "BTC_TEST"}
+
+
+def test_create_transfer_creates_transaction(monkeypatch):
+    """Ensure ``create_transfer`` sends a transaction request."""
+
+    class DummyFuture:
+        def result(self):
+            return SimpleNamespace(data=SimpleNamespace(id="T1", status="COMPLETED"))
+
+    class DummyTransactions:
+        def __init__(self):
+            self.calls = []
+
+        def create_transaction(self, request):
+            self.calls.append(request)
+            return DummyFuture()
+
+    class DummyClient:
+        def __init__(self):
+            self.transactions = DummyTransactions()
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            pass
+
+    dummy_client = DummyClient()
+    monkeypatch.setattr(fb, "get_fireblocks_client", lambda: dummy_client)
+
+    result = asyncio.run(
+        fb.create_transfer("V1", "BTC_TEST", "0.1", "ADDR")
+    )
+
+    assert dummy_client.transactions.calls == [
+        {
+            "assetId": "BTC_TEST",
+            "source": {"type": "VAULT_ACCOUNT", "id": "V1"},
+            "destination": {
+                "type": "ONE_TIME_ADDRESS",
+                "oneTimeAddress": {"address": "ADDR"},
+            },
+            "amount": "0.1",
+        }
+    ]
+    assert result["id"] == "T1"
+    assert result["status"] == "COMPLETED"
+
+
+def test_transfer_between_vault_accounts(monkeypatch):
+    """Ensure ``transfer_between_vault_accounts`` issues a vault transfer."""
+
+    class DummyFuture:
+        def result(self):
+            return SimpleNamespace(data=SimpleNamespace(id="T2", status="COMPLETED"))
+
+    class DummyClient:
+        def __init__(self):
+            self.calls = []
+
+        def transfer_between_vault_accounts(self, request):
+            self.calls.append(request)
+            return DummyFuture()
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            pass
+
+    dummy_client = DummyClient()
+    monkeypatch.setattr(fb, "get_fireblocks_client", lambda: dummy_client)
+
+    result = asyncio.run(
+        fb.transfer_between_vault_accounts("V1", "V2", "BTC_TEST", "0.1")
+    )
+
+    assert dummy_client.calls == [
+        {
+            "assetId": "BTC_TEST",
+            "source": {"type": "VAULT_ACCOUNT", "id": "V1"},
+            "destination": {"type": "VAULT_ACCOUNT", "id": "V2"},
+            "amount": "0.1",
+        }
+    ]
+    assert result["id"] == "T2"
+    assert result["status"] == "COMPLETED"

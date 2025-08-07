@@ -23,6 +23,12 @@ class WithdrawalRequest(BaseModel):
     amount: str
     asset: str
 
+
+class InternalTransferRequest(BaseModel):
+    destination_vault_id: str
+    amount: str
+    asset: str
+
 class WithdrawalResponse(BaseModel):
     transfer_id: str
     status: str

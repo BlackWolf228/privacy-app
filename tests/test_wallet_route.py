@@ -89,6 +89,7 @@ def setup_route(monkeypatch):
     wallet_mod = types.ModuleType("app.models.wallet")
 
     class Wallet:  # pragma: no cover - simple container
+        id = Field("id")
         user_id = Field("user_id")
         currency = Field("currency")
         network = Field("network")
@@ -128,8 +129,23 @@ def setup_route(monkeypatch):
 
     # Stub Pydantic schemas
     schemas_wallet_mod = types.ModuleType("app.schemas.wallet")
-    for name in ["WalletOut", "WalletBalance", "WithdrawalRequest", "WithdrawalResponse"]:
-        setattr(schemas_wallet_mod, name, type(name, (), {}))
+    def _model_factory(name):
+        class Model:  # pragma: no cover - lightweight stand-in
+            def __init__(self, **kwargs):
+                for key, value in kwargs.items():
+                    setattr(self, key, value)
+
+        Model.__name__ = name
+        return Model
+
+    for name in [
+        "WalletOut",
+        "WalletBalance",
+        "WithdrawalRequest",
+        "WithdrawalResponse",
+        "InternalTransferRequest",
+    ]:
+        setattr(schemas_wallet_mod, name, _model_factory(name))
     monkeypatch.setitem(sys.modules, "app.schemas.wallet", schemas_wallet_mod)
 
     # Stub Fireblocks service
@@ -153,9 +169,29 @@ def setup_route(monkeypatch):
         calls.append(("get_wallet_balance", vault_id, asset))
         return {"amount": "0", "currency": asset}
 
+    async def create_transfer(vault_id: str, asset: str, amount: str, address: str):
+        calls.append(("create_transfer", vault_id, asset, amount, address))
+        return {"id": "T1", "status": "COMPLETED"}
+
+    async def transfer_between_vault_accounts(
+        source_vault_id: str, dest_vault_id: str, asset: str, amount: str
+    ):
+        calls.append(
+            (
+                "transfer_between_vault_accounts",
+                source_vault_id,
+                dest_vault_id,
+                asset,
+                amount,
+            )
+        )
+        return {"id": "T2", "status": "COMPLETED"}
+
     fireblocks_mod.create_vault_account = create_vault_account
     fireblocks_mod.create_asset_for_vault = create_asset_for_vault
     fireblocks_mod.get_wallet_balance = get_wallet_balance
+    fireblocks_mod.create_transfer = create_transfer
+    fireblocks_mod.transfer_between_vault_accounts = transfer_between_vault_accounts
     fireblocks_mod.AssetAlreadyExistsError = AssetAlreadyExistsError
     monkeypatch.setitem(sys.modules, "app.services.fireblocks", fireblocks_mod)
 
@@ -313,4 +349,42 @@ def test_adding_existing_asset_returns_409(monkeypatch):
         assert getattr(exc, "detail", None) == "asset already provisioned for this vault"
 
     assert calls == [("create_asset_for_vault", "V1", "BTC_TEST")]
+
+
+def test_internal_transfer_calls_fireblocks(monkeypatch):
+    create_user_wallet, User, DummySession, calls = setup_route(monkeypatch)
+    from app.routes.wallet import transfer_between_wallets
+    from app.models.wallet import Wallet as RouteWallet
+    from app.schemas.wallet import InternalTransferRequest
+
+    session = DummySession()
+    user = User(id="user-1", email_verified=True, has_vault=True)
+
+    # Source wallet owned by user
+    wallet = RouteWallet(
+        user_id=user.id,
+        vault_id="V1",
+        address="ADDR1",
+        currency="BTC_TEST",
+        network="FIREBLOCKS",
+    )
+    session.wallets.append(wallet)
+
+    payload = InternalTransferRequest()
+    payload.destination_vault_id = "V2"
+    payload.amount = "0.5"
+    payload.asset = "BTC_TEST"
+
+    response = asyncio.run(
+        transfer_between_wallets(wallet.id, payload, current_user=user, db=session)
+    )
+
+    assert (
+        "transfer_between_vault_accounts",
+        "V1",
+        "V2",
+        "BTC_TEST",
+        "0.5",
+    ) in calls
+    assert getattr(response, "transfer_id", None) == "T2"
 

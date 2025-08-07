@@ -8,12 +8,20 @@ from app.models.user import User
 from app.models.wallet import Wallet
 from app.models.wallet_log import WalletLog
 from app.models.vault import Vault
-from app.schemas.wallet import WalletOut, WalletBalance, WithdrawalRequest, WithdrawalResponse
+from app.schemas.wallet import (
+    WalletOut,
+    WalletBalance,
+    WithdrawalRequest,
+    WithdrawalResponse,
+    InternalTransferRequest,
+)
 from app.utils.auth import get_current_user
 from app.services.fireblocks import (
     create_vault_account,
     create_asset_for_vault,
     get_wallet_balance,
+    create_transfer,
+    transfer_between_vault_accounts,
     AssetAlreadyExistsError,
 )
 
@@ -145,6 +153,48 @@ async def wallet_balance(
     await db.commit()
 
     return WalletBalance(wallet_id=wallet.id, amount=data["amount"], asset=data["currency"])
+
+
+@router.post("/{wallet_id}/transfer", response_model=WithdrawalResponse)
+async def transfer_between_wallets(
+    wallet_id: UUID,
+    payload: InternalTransferRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Transfer funds between two Fireblocks vault accounts."""
+    result = await db.execute(
+        select(Wallet).where(
+            Wallet.id == wallet_id,
+            Wallet.user_id == current_user.id,
+        )
+    )
+    wallet = result.scalar_one_or_none()
+    if wallet is None:
+        raise HTTPException(status_code=404, detail="Wallet not found")
+
+    if payload.asset != wallet.currency:
+        raise HTTPException(status_code=400, detail="Asset mismatch with wallet")
+
+    transfer = await transfer_between_vault_accounts(
+        wallet.vault_id, payload.destination_vault_id, payload.asset, payload.amount
+    )
+
+    log = WalletLog(
+        vault_id=wallet.vault_id,
+        network=wallet.network,
+        address=payload.destination_vault_id,
+        balance=payload.amount,
+        status=transfer.get("status") or transfer.get("state"),
+        action="wallet.transfer.internal",
+    )
+    db.add(log)
+    await db.commit()
+
+    return WithdrawalResponse(
+        transfer_id=transfer.get("id", ""),
+        status=transfer.get("status") or transfer.get("state", "pending"),
+    )
 
 
 @router.post("/{wallet_id}/withdraw", response_model=WithdrawalResponse)
