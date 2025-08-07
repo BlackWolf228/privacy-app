@@ -32,10 +32,11 @@ class Settings:
         # Email
         self.EMAIL_FROM = os.getenv("EMAIL_FROM", "noreply@privacyapp.com")
 
-        # CryptoAPI
-        self.CRYPTO_API_BASE_URL = os.getenv(
-            "CRYPTO_API_BASE_URL", "https://rest.cryptoapis.io/v2/wallet-as-a-service"
+        # Fireblocks
+        self.FIREBLOCKS_API_BASE_URL = os.getenv(
+            "FIREBLOCKS_API_BASE_URL", "https://sandbox-api.fireblocks.io"
         )
-        self.CRYPTO_API_KEY = os.getenv("CRYPTO_API_KEY")
+        self.FIREBLOCKS_API_KEY = os.getenv("FIREBLOCKS_API_KEY")
+        self.FIREBLOCKS_API_SECRET = os.getenv("FIREBLOCKS_API_SECRET")
 
 settings = Settings()

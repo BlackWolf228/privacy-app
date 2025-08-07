@@ -7,15 +7,13 @@ from app.models.user import User
 from app.models.wallet import Wallet
 from app.models.wallet_log import WalletLog
 from app.schemas.wallet import (
-    WalletCreate,
     WalletOut,
     WalletBalance,
     WithdrawalRequest,
     WithdrawalResponse,
 )
-from app.services.circle import (
-    SUPPORTED_NETWORKS,
-    create_wallet,
+from app.services.fireblocks import (
+    create_vault_account,
     get_wallet_balance,
     create_transfer,
 )
@@ -25,45 +23,26 @@ router = APIRouter(prefix="/wallets", tags=["Wallets"])
 
 @router.post("/", response_model=WalletOut)
 async def create_user_wallet(
-    payload: WalletCreate,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     if not current_user.email_verified:
         raise HTTPException(status_code=400, detail="Email not verified")
 
-    currency = payload.currency.upper()
-    if currency not in SUPPORTED_NETWORKS:
-        raise HTTPException(status_code=400, detail="Unsupported currency")
-
-    networks = SUPPORTED_NETWORKS[currency]
-    network = payload.network.upper() if payload.network else None
-    if network is None:
-        if len(networks) == 1:
-            network = networks[0]
-        else:
-            raise HTTPException(status_code=400, detail="Network required for this currency")
-    elif network not in networks:
-        raise HTTPException(status_code=400, detail="Unsupported network")
-
     result = await db.execute(
-        select(Wallet).where(
-            Wallet.user_id == current_user.id,
-            Wallet.currency == currency,
-            Wallet.network == network,
-        )
+        select(Wallet).where(Wallet.user_id == current_user.id)
     )
     existing = result.scalar_one_or_none()
     if existing:
         return existing
 
-    data = await create_wallet(currency, network)
+    data = await create_vault_account(str(current_user.id))
     wallet = Wallet(
         user_id=current_user.id,
-        wallet_id=data["wallet_id"],
-        address=data["address"],
-        currency=currency,
-        network=network,
+        wallet_id=data["vault_account_id"],
+        address="",
+        currency="VAULT",
+        network="FIREBLOCKS",
     )
     db.add(wallet)
     await db.commit()
@@ -84,6 +63,7 @@ async def create_user_wallet(
 @router.get("/{wallet_id}/balance", response_model=WalletBalance)
 async def wallet_balance(
     wallet_id: str,
+    asset: str,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -97,7 +77,7 @@ async def wallet_balance(
     if wallet is None:
         raise HTTPException(status_code=404, detail="Wallet not found")
 
-    data = await get_wallet_balance(wallet.wallet_id)
+    data = await get_wallet_balance(wallet.wallet_id, asset)
 
     log = WalletLog(
         wallet_id=wallet.wallet_id,
@@ -110,7 +90,7 @@ async def wallet_balance(
     db.add(log)
     await db.commit()
 
-    return WalletBalance(wallet_id=wallet.wallet_id, amount=data["amount"], currency=data["currency"])
+    return WalletBalance(wallet_id=wallet.wallet_id, amount=data["amount"], asset=data["currency"])
 
 @router.post("/{wallet_id}/withdraw", response_model=WithdrawalResponse)
 async def withdraw_from_wallet(
@@ -129,14 +109,16 @@ async def withdraw_from_wallet(
     if wallet is None:
         raise HTTPException(status_code=404, detail="Wallet not found")
 
-    transfer = await create_transfer(wallet.wallet_id, payload.address, payload.amount, wallet.network)
+    transfer = await create_transfer(
+        wallet.wallet_id, payload.asset, payload.amount, payload.address
+    )
 
     log = WalletLog(
         wallet_id=wallet.wallet_id,
         network=wallet.network,
         address=payload.address,
         balance=payload.amount,
-        status=transfer.get("state"),
+        status=transfer.get("status") or transfer.get("state"),
         action="wallet.withdraw",
     )
     db.add(log)
@@ -144,5 +126,5 @@ async def withdraw_from_wallet(
 
     return WithdrawalResponse(
         transfer_id=transfer.get("id", ""),
-        status=transfer.get("state", "pending"),
+        status=transfer.get("status") or transfer.get("state", "pending"),
     )
