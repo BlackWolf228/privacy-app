@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 
 try:
     from dotenv import load_dotenv
@@ -32,10 +33,18 @@ class Settings:
         # Email
         self.EMAIL_FROM = os.getenv("EMAIL_FROM", "noreply@privacyapp.com")
 
-        # CryptoAPI
-        self.CRYPTO_API_BASE_URL = os.getenv(
-            "CRYPTO_API_BASE_URL", "https://rest.cryptoapis.io/v2/wallet-as-a-service"
+        # Fireblocks
+        self.FIREBLOCKS_API_BASE_URL = os.getenv(
+            "FIREBLOCKS_API_BASE_URL", "https://sandbox-api.fireblocks.io"
         )
-        self.CRYPTO_API_KEY = os.getenv("CRYPTO_API_KEY")
+        self.FIREBLOCKS_API_KEY = os.getenv("FIREBLOCKS_API_KEY")
+        key_path = os.getenv(
+            "FIREBLOCKS_API_SECRET_PATH",
+            Path(__file__).resolve().parent / "key" / "file.key",
+        )
+        try:
+            self.FIREBLOCKS_API_SECRET = Path(key_path).read_text().strip()
+        except FileNotFoundError:
+            self.FIREBLOCKS_API_SECRET = None
 
 settings = Settings()

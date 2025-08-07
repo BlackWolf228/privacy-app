@@ -9,7 +9,6 @@ from app.models.user import User
 from app.models.twofa import EmailCode
 from app.models.wallet import Wallet
 from app.schemas.twofa import EmailCodeVerify
-from app.services.cryptoapi import SUPPORTED_NETWORKS, create_wallet
 from app.utils.auth import get_current_user
 from app.utils.email import send_verification_email
 
