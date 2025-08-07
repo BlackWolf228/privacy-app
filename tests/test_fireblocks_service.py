@@ -41,14 +41,20 @@ class DummyFuture:
 
 
 class DummyVaults:
+    def __init__(self):
+        self.generate_called = False
+        self.get_called = False
+
     def create_vault_account(self, request):
         data = type("Resp", (), {"data": type("Data", (), {"id": "1", "name": request.name})()})()
         return DummyFuture(data)
 
     def generate_new_address(self, vault_account_id, asset):
+        self.generate_called = True
         return DummyFuture(None)
 
     def get_deposit_address(self, vault_account_id, asset):
+        self.get_called = True
         data = type("Resp", (), {"data": type("Data", (), {"address": "ADDR123"})()})()
         return DummyFuture(data)
 
@@ -65,12 +71,10 @@ class DummyClient:
 
 
 def test_create_vault_account(monkeypatch):
-    monkeypatch.setattr(fireblocks, "get_fireblocks_client", lambda: DummyClient())
-    result = asyncio.run(fireblocks.create_vault_account("alice", "BTC_TEST"))
-    assert result == {
-        "vault_account_id": "1",
-        "name": "alice",
-        "asset": "BTC_TEST",
-        "address": "ADDR123",
-    }
+    dummy_client = DummyClient()
+    monkeypatch.setattr(fireblocks, "get_fireblocks_client", lambda: dummy_client)
+    result = asyncio.run(fireblocks.create_vault_account("alice"))
+    assert result == {"vault_account_id": "1", "name": "alice"}
+    assert dummy_client.vaults.generate_called is False
+    assert dummy_client.vaults.get_called is False
 

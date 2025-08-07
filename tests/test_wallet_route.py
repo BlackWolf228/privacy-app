@@ -134,14 +134,12 @@ def setup_route(monkeypatch):
 
     # Stub Fireblocks service
     fireblocks_mod = types.ModuleType("app.services.fireblocks")
-    calls: list[tuple[str, str, str]] = []
+    calls: list[tuple] = []
 
-    async def create_vault_account(name: str, asset: str):
-        calls.append(("create_vault_account", name, asset))
+    async def create_vault_account(name: str):
+        calls.append(("create_vault_account", name))
         return {
             "vault_account_id": "V1",
-            "address": f"ADDR_{asset}",
-            "asset": asset,
         }
 
     async def create_asset_for_vault(vault_id: str, asset: str):
@@ -228,7 +226,8 @@ def test_multiple_wallet_creations_reuse_same_vault(monkeypatch):
 
     assert wallet1.vault_id == wallet2.vault_id
     assert calls == [
-        ("create_vault_account", "user-1", "BTC_TEST"),
+        ("create_vault_account", "user-1"),
+        ("create_asset_for_vault", "V1", "BTC_TEST"),
         ("create_asset_for_vault", "V1", "ETH_TEST"),
     ]
 
@@ -267,16 +266,16 @@ def test_create_vault(monkeypatch):
     session = DummySession()
     user = User(id="user-1", email_verified=True)
 
-    vault = asyncio.run(create_user_vault("BTC_TEST", current_user=user, db=session))
+    vault = asyncio.run(create_user_vault(current_user=user, db=session))
 
     assert vault.vault_id == "V1"
     assert user.has_vault is True
-    assert calls == [("create_vault_account", "user-1", "BTC_TEST")]
+    assert calls == [("create_vault_account", "user-1")]
 
     try:
-        asyncio.run(create_user_vault("BTC_TEST", current_user=user, db=session))
+        asyncio.run(create_user_vault(current_user=user, db=session))
         assert False, "Expected HTTPException"
     except Exception as exc:
         assert getattr(exc, "status_code", None) == 400
-    assert calls == [("create_vault_account", "user-1", "BTC_TEST")]
+    assert calls == [("create_vault_account", "user-1")]
 
