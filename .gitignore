@@ -1,2 +1,3 @@
 .env
-app/key/fireblocks_secret.key
+app/key/*
+!app/key/.gitkeep
