@@ -233,6 +233,20 @@ def test_multiple_wallet_creations_reuse_same_vault(monkeypatch):
     ]
 
 
+def test_user_with_existing_vault_uses_existing_id(monkeypatch):
+    create_user_wallet, User, DummySession, calls = setup_route(monkeypatch)
+    from app.models.vault import Vault as RouteVault
+
+    session = DummySession()
+    user = User(id="user-1", email_verified=True, has_vault=True)
+    session.vault = RouteVault(vault_id="V1", user_id=user.id)
+
+    wallet = asyncio.run(create_user_wallet("BTC_TEST", current_user=user, db=session))
+
+    assert wallet.vault_id == "V1"
+    assert calls == [("create_asset_for_vault", "V1", "BTC_TEST")]
+
+
 def test_creating_wallet_for_existing_asset_returns_existing(monkeypatch):
     create_user_wallet, User, DummySession, calls = setup_route(monkeypatch)
     session = DummySession()
