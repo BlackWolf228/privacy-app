@@ -109,8 +109,8 @@ def test_create_transfer_creates_transaction(monkeypatch):
         def __init__(self):
             self.calls = []
 
-        def create_transaction(self, request):
-            self.calls.append(request)
+        def create_transaction(self, *, transaction_request):
+            self.calls.append(transaction_request)
             return DummyFuture()
 
     class DummyClient:
@@ -156,8 +156,8 @@ def test_transfer_between_vault_accounts(monkeypatch):
         def __init__(self):
             self.calls = []
 
-        def create_transaction(self, idempotency_key, request):
-            self.calls.append((idempotency_key, request))
+        def create_transaction(self, *, idempotency_key, transaction_request):
+            self.calls.append((idempotency_key, transaction_request))
             return DummyFuture()
 
     class DummyClient:
