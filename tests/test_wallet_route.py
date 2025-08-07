@@ -144,12 +144,12 @@ def setup_route(monkeypatch):
             "asset": asset,
         }
 
-    async def generate_address_for_vault(vault_id: str, asset: str):
-        calls.append(("generate_address_for_vault", vault_id, asset))
+    async def create_asset_for_vault(vault_id: str, asset: str):
+        calls.append(("create_asset_for_vault", vault_id, asset))
         return f"ADDR_{asset}"
 
     fireblocks_mod.create_vault_account = create_vault_account
-    fireblocks_mod.generate_address_for_vault = generate_address_for_vault
+    fireblocks_mod.create_asset_for_vault = create_asset_for_vault
     monkeypatch.setitem(sys.modules, "app.services.fireblocks", fireblocks_mod)
 
     # Stub database dependency
@@ -229,7 +229,7 @@ def test_multiple_wallet_creations_reuse_same_vault(monkeypatch):
     assert wallet1.vault_id == wallet2.vault_id
     assert calls == [
         ("create_vault_account", "user-1", "BTC_TEST"),
-        ("generate_address_for_vault", "V1", "ETH_TEST"),
+        ("create_asset_for_vault", "V1", "ETH_TEST"),
     ]
 
 
