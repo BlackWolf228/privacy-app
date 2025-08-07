@@ -13,6 +13,7 @@ from app.models.user import User
 from app.schemas.user import UserCreate, UserOut
 from app.utils.security import hash_password, verify_password
 from app.config import settings
+from app.utils.identifiers import generate_unique_privacy_id
 
 from app.utils.whitelist import is_email_whitelisted
 
@@ -43,9 +44,11 @@ async def register(user: UserCreate, db: AsyncSession = Depends(get_db)):
         raise HTTPException(status_code=400, detail="Email already registered")
 
     # 3. Create new user
+    privacy_id = await generate_unique_privacy_id(db)
     new_user = User(
         email=email,
-        password_hash=hash_password(user.password)
+        password_hash=hash_password(user.password),
+        privacy_id=privacy_id,
     )
     db.add(new_user)
 

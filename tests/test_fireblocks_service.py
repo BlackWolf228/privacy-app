@@ -57,7 +57,14 @@ def test_get_wallet_balance_uses_vault_account_asset(monkeypatch):
     class DummyFuture:
         def result(self):
             # mimic Fireblocks response structure
-            return SimpleNamespace(data=SimpleNamespace(balance="10", id="BTC_TEST"))
+            return SimpleNamespace(
+                data=SimpleNamespace(
+                    balance="10",
+                    id="BTC_TEST",
+                    pending="1",
+                    available="9",
+                )
+            )
 
     class DummyVaults:
         def __init__(self):
@@ -83,7 +90,12 @@ def test_get_wallet_balance_uses_vault_account_asset(monkeypatch):
     result = asyncio.run(fb.get_wallet_balance("V1", "BTC_TEST"))
 
     assert dummy_client.vaults.calls == [("V1", "BTC_TEST")]
-    assert result == {"amount": "10", "currency": "BTC_TEST"}
+    assert result == {
+        "balance": "10",
+        "asset": "BTC_TEST",
+        "pending_balance": "1",
+        "available_balance": "9",
+    }
 
 
 def test_create_transfer_creates_transaction(monkeypatch):
@@ -140,13 +152,17 @@ def test_transfer_between_vault_accounts(monkeypatch):
         def result(self):
             return SimpleNamespace(data=SimpleNamespace(id="T2", status="COMPLETED"))
 
-    class DummyClient:
+    class DummyTransactions:
         def __init__(self):
             self.calls = []
 
-        def transfer_between_vault_accounts(self, request):
+        def create_transaction(self, request):
             self.calls.append(request)
             return DummyFuture()
+
+    class DummyClient:
+        def __init__(self):
+            self.transactions = DummyTransactions()
 
         def __enter__(self):
             return self
@@ -161,7 +177,7 @@ def test_transfer_between_vault_accounts(monkeypatch):
         fb.transfer_between_vault_accounts("V1", "V2", "BTC_TEST", "0.1")
     )
 
-    assert dummy_client.calls == [
+    assert dummy_client.transactions.calls == [
         {
             "assetId": "BTC_TEST",
             "source": {"type": "VAULT_ACCOUNT", "id": "V1"},

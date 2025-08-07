@@ -12,6 +12,8 @@ class UserOut(BaseModel):
     email: EmailStr
     is_active: bool
     has_vault: bool
+    privacy_id: str
+    username: Optional[str] = None
     created_at: datetime
     updated_at: datetime
     referral_code: Optional[str] = None

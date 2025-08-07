@@ -15,8 +15,10 @@ class WalletOut(BaseModel):
 
 class WalletBalance(BaseModel):
     wallet_id: UUID
-    amount: str
+    balance: str
     asset: str
+    pending_balance: str | None = None
+    available_balance: str | None = None
 
 class WithdrawalRequest(BaseModel):
     address: str
@@ -25,7 +27,7 @@ class WithdrawalRequest(BaseModel):
 
 
 class InternalTransferRequest(BaseModel):
-    destination_vault_id: str
+    destination_user_id: str
     amount: str
     asset: str
 

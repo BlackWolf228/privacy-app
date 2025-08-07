@@ -19,6 +19,7 @@ from app.utils.auth import get_current_user
 from app.services.fireblocks import (
     create_vault_account,
     create_asset_for_vault,
+    generate_address_for_vault,
     get_wallet_balance,
     create_transfer,
     transfer_between_vault_accounts,
@@ -145,14 +146,20 @@ async def wallet_balance(
         vault_id=wallet.vault_id,
         network=wallet.network,
         address=wallet.address,
-        balance=data.get("amount"),
+        balance=data.get("balance"),
         status="balance",
         action="wallet.balance.check",
     )
     db.add(log)
     await db.commit()
 
-    return WalletBalance(wallet_id=wallet.id, amount=data["amount"], asset=data["currency"])
+    return WalletBalance(
+        wallet_id=wallet.id,
+        balance=data["balance"],
+        asset=data["asset"],
+        pending_balance=data.get("pending_balance"),
+        available_balance=data.get("available_balance"),
+    )
 
 
 @router.post("/{wallet_id}/transfer", response_model=WithdrawalResponse)
@@ -162,7 +169,7 @@ async def transfer_between_wallets(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Transfer funds between two Fireblocks vault accounts."""
+    """Transfer funds to another user's wallet identified by privacy ID or username."""
     result = await db.execute(
         select(Wallet).where(
             Wallet.id == wallet_id,
@@ -176,14 +183,64 @@ async def transfer_between_wallets(
     if payload.asset != wallet.currency:
         raise HTTPException(status_code=400, detail="Asset mismatch with wallet")
 
+    # Locate destination user by privacy ID or username
+    result = await db.execute(
+        select(User).where(User.privacy_id == payload.destination_user_id)
+    )
+    dest_user = result.scalar_one_or_none()
+    if dest_user is None:
+        result = await db.execute(
+            select(User).where(User.username == payload.destination_user_id)
+        )
+        dest_user = result.scalar_one_or_none()
+    if dest_user is None:
+        raise HTTPException(status_code=404, detail="Destination user not found")
+
+    # Find or create destination wallet for the requested asset
+    result = await db.execute(
+        select(Wallet).where(
+            Wallet.user_id == dest_user.id,
+            Wallet.currency == payload.asset,
+            Wallet.network == "FIREBLOCKS",
+        )
+    )
+    dest_wallet = result.scalar_one_or_none()
+
+    if dest_wallet is None:
+        # Ensure destination user has a vault
+        result = await db.execute(select(Vault).where(Vault.user_id == dest_user.id))
+        dest_vault = result.scalar_one_or_none()
+        if dest_vault is None:
+            vault_data = await create_vault_account(str(dest_user.id))
+            dest_vault = Vault(vault_id=vault_data["vault_account_id"], user_id=dest_user.id)
+            dest_user.has_vault = True
+            db.add(dest_vault)
+            db.add(dest_user)
+            await db.commit()
+            await db.refresh(dest_vault)
+        try:
+            address = await create_asset_for_vault(dest_vault.vault_id, payload.asset)
+        except AssetAlreadyExistsError:
+            address = await generate_address_for_vault(dest_vault.vault_id, payload.asset)
+        dest_wallet = Wallet(
+            user_id=dest_user.id,
+            vault_id=dest_vault.vault_id,
+            address=address,
+            currency=payload.asset,
+            network="FIREBLOCKS",
+        )
+        db.add(dest_wallet)
+        await db.commit()
+        await db.refresh(dest_wallet)
+
     transfer = await transfer_between_vault_accounts(
-        wallet.vault_id, payload.destination_vault_id, payload.asset, payload.amount
+        wallet.vault_id, dest_wallet.vault_id, payload.asset, payload.amount
     )
 
     log = WalletLog(
         vault_id=wallet.vault_id,
         network=wallet.network,
-        address=payload.destination_vault_id,
+        address=dest_wallet.vault_id,
         balance=payload.amount,
         status=transfer.get("status") or transfer.get("state"),
         action="wallet.transfer.internal",
