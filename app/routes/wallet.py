@@ -1,6 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
+from uuid import UUID
+
 from app.database import get_db
 from app.models.user import User
 from app.models.wallet import Wallet
@@ -105,16 +107,16 @@ async def create_user_wallet(
     return wallet
 
 
-@router.get("/{vault_id}/balance", response_model=WalletBalance)
+@router.get("/{wallet_id}/balance", response_model=WalletBalance)
 async def wallet_balance(
-    vault_id: str,
-    asset: str,
+    wallet_id: UUID,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
+    """Return the balance for a specific wallet identified by its internal ID."""
     result = await db.execute(
         select(Wallet).where(
-            Wallet.vault_id == vault_id,
+            Wallet.id == wallet_id,
             Wallet.user_id == current_user.id,
         )
     )
@@ -122,7 +124,7 @@ async def wallet_balance(
     if wallet is None:
         raise HTTPException(status_code=404, detail="Wallet not found")
 
-    data = await get_wallet_balance(wallet.vault_id, asset)
+    data = await get_wallet_balance(wallet.vault_id, wallet.currency)
 
     log = WalletLog(
         vault_id=wallet.vault_id,
@@ -135,25 +137,29 @@ async def wallet_balance(
     db.add(log)
     await db.commit()
 
-    return WalletBalance(vault_id=wallet.vault_id, amount=data["amount"], asset=data["currency"])
+    return WalletBalance(wallet_id=wallet.id, amount=data["amount"], asset=data["currency"])
 
 
-@router.post("/{vault_id}/withdraw", response_model=WithdrawalResponse)
+@router.post("/{wallet_id}/withdraw", response_model=WithdrawalResponse)
 async def withdraw_from_wallet(
-    vault_id: str,
+    wallet_id: UUID,
     payload: WithdrawalRequest,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
+    """Withdraw funds from a specific wallet using its internal ID."""
     result = await db.execute(
         select(Wallet).where(
-            Wallet.vault_id == vault_id,
+            Wallet.id == wallet_id,
             Wallet.user_id == current_user.id,
         )
     )
     wallet = result.scalar_one_or_none()
     if wallet is None:
         raise HTTPException(status_code=404, detail="Wallet not found")
+
+    if payload.asset != wallet.currency:
+        raise HTTPException(status_code=400, detail="Asset mismatch with wallet")
 
     transfer = await create_transfer(
         wallet.vault_id, payload.asset, payload.amount, payload.address
