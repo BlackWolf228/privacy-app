@@ -92,9 +92,9 @@ def test_create_wallet_skips_existing_other_currency(monkeypatch):
         currency = WalletField("currency")
         network = WalletField("network")
 
-        def __init__(self, user_id, wallet_id, address, currency, network):
+        def __init__(self, user_id, vault_id, address, currency, network):
             self.user_id = user_id
-            self.wallet_id = wallet_id
+            self.vault_id = vault_id
             self.address = address
             self.currency = currency
             self.network = network
@@ -112,6 +112,16 @@ def test_create_wallet_skips_existing_other_currency(monkeypatch):
 
     wallet_log_mod.WalletLog = WalletLog
     monkeypatch.setitem(sys.modules, "app.models.wallet_log", wallet_log_mod)
+
+    vault_mod = types.ModuleType("app.models.vault")
+
+    class Vault:  # pragma: no cover - placeholder
+        def __init__(self, vault_id, user_id):
+            self.vault_id = vault_id
+            self.user_id = user_id
+
+    vault_mod.Vault = Vault
+    monkeypatch.setitem(sys.modules, "app.models.vault", vault_mod)
 
     # Stub Pydantic schemas
     schemas_wallet_mod = types.ModuleType("app.schemas.wallet")
@@ -190,7 +200,7 @@ def test_create_wallet_skips_existing_other_currency(monkeypatch):
     user = User(id="user-1", email_verified=True)
     existing = RouteWallet(
         user_id=user.id,
-        wallet_id="1",
+        vault_id="1",
         address="",
         currency="VAULT",
         network="FIREBLOCKS",
@@ -199,7 +209,7 @@ def test_create_wallet_skips_existing_other_currency(monkeypatch):
 
     result = asyncio.run(create_user_wallet(current_user=user, db=session))
 
-    assert result.wallet_id == "2"
+    assert result.vault_id == "2"
     assert result.address == "ADDR123"
     assert result.currency == "BTC_TEST"
 

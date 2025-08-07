@@ -4,7 +4,7 @@ from pydantic import BaseModel
 
 class WalletOut(BaseModel):
     id: UUID
-    wallet_id: str
+    vault_id: str
     address: str
     currency: str
     network: str
@@ -14,7 +14,7 @@ class WalletOut(BaseModel):
         from_attributes = True
 
 class WalletBalance(BaseModel):
-    wallet_id: str
+    vault_id: str
     amount: str
     asset: str
 
