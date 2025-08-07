@@ -128,8 +128,9 @@ def setup_route(monkeypatch):
     wallet_log_mod = types.ModuleType("app.models.wallet_log")
 
     class WalletLog:  # pragma: no cover - placeholder
-        def __init__(self, *args, **kwargs):
-            pass
+        def __init__(self, **kwargs):
+            for key, value in kwargs.items():
+                setattr(self, key, value)
 
     wallet_log_mod.WalletLog = WalletLog
     monkeypatch.setitem(sys.modules, "app.models.wallet_log", wallet_log_mod)
@@ -239,6 +240,7 @@ def setup_route(monkeypatch):
     from app.models.wallet import Wallet as RouteWallet
     from app.models.vault import Vault as RouteVault
     from app.models.user import User as RouteUser
+    from app.models.wallet_log import WalletLog as RouteWalletLog
 
     class DummyResult:
         def __init__(self, value):
@@ -252,6 +254,7 @@ def setup_route(monkeypatch):
             self.vault = None
             self.wallets: list[RouteWallet] = []
             self.users: list[RouteUser] = []
+            self.logs: list[RouteWalletLog] = []
 
         async def execute(self, query):
             if query.model is RouteWallet:
@@ -277,6 +280,8 @@ def setup_route(monkeypatch):
                 self.vault = obj
             elif isinstance(obj, RouteUser):
                 self.users.append(obj)
+            elif isinstance(obj, RouteWalletLog):
+                self.logs.append(obj)
 
         async def commit(self):
             pass
@@ -425,4 +430,5 @@ def test_internal_transfer_calls_fireblocks(monkeypatch):
         "0.5",
     ) in calls
     assert getattr(response, "transfer_id", None) == "T2"
+    assert session.logs[-1].address == "ADDR2"
 

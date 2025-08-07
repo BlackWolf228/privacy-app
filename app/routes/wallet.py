@@ -240,7 +240,7 @@ async def transfer_between_wallets(
     log = WalletLog(
         vault_id=wallet.vault_id,
         network=wallet.network,
-        address=dest_wallet.vault_id,
+        address=dest_wallet.address,
         balance=payload.amount,
         status=transfer.get("status") or transfer.get("state"),
         action="wallet.transfer.internal",
