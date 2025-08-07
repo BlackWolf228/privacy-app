@@ -156,8 +156,8 @@ def test_transfer_between_vault_accounts(monkeypatch):
         def __init__(self):
             self.calls = []
 
-        def create_transaction(self, request):
-            self.calls.append(request)
+        def create_transaction(self, idempotency_key, request):
+            self.calls.append((idempotency_key, request))
             return DummyFuture()
 
     class DummyClient:
@@ -177,13 +177,14 @@ def test_transfer_between_vault_accounts(monkeypatch):
         fb.transfer_between_vault_accounts("V1", "V2", "BTC_TEST", "0.1")
     )
 
-    assert dummy_client.transactions.calls == [
-        {
-            "assetId": "BTC_TEST",
-            "source": {"type": "VAULT_ACCOUNT", "id": "V1"},
-            "destination": {"type": "VAULT_ACCOUNT", "id": "V2"},
-            "amount": "0.1",
-        }
-    ]
+    assert len(dummy_client.transactions.calls) == 1
+    idempotency_key, request = dummy_client.transactions.calls[0]
+    assert isinstance(idempotency_key, str) and len(idempotency_key) == 32
+    assert request == {
+        "assetId": "BTC_TEST",
+        "source": {"type": "VAULT_ACCOUNT", "id": "V1"},
+        "destination": {"type": "VAULT_ACCOUNT", "id": "V2"},
+        "amount": "0.1",
+    }
     assert result["id"] == "T2"
     assert result["status"] == "COMPLETED"
