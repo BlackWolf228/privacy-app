@@ -4,6 +4,7 @@ from fireblocks.base_path import BasePath
 from fireblocks.models.create_vault_account_request import CreateVaultAccountRequest
 from app.config import settings
 import asyncio
+import uuid
 
 
 class AssetAlreadyExistsError(Exception):
@@ -206,7 +207,8 @@ async def transfer_between_vault_accounts(
                 },
                 "amount": amount,
             }
-            future = client.transactions.create_transaction(tx_request)
+            idempotency_key = uuid.uuid4().hex
+            future = client.transactions.create_transaction(idempotency_key, tx_request)
             response = future.result()
             data = getattr(response, "data", response)
             return {
