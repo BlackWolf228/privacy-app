@@ -94,9 +94,14 @@ async def get_wallet_balance(vault_account_id: str, asset: str):
 
     def sync_call():
         with get_fireblocks_client() as client:
-            future = client.vaults.get_vault_balance_by_asset(
-                vault_account_id, asset
-            )
+            # ``get_vault_account_asset`` returns the balance for a specific
+            # asset within the given vault.  Previously we used
+            # ``get_vault_balance_by_asset`` which aggregates balances across
+            # all vaults in the workspace and therefore returned incorrect
+            # results when querying a single vault.  By switching to
+            # ``get_vault_account_asset`` we ensure the balance reflects only
+            # the requested vault.
+            future = client.vaults.get_vault_account_asset(vault_account_id, asset)
             response = future.result()
             data = response.data
             amount = getattr(data, "balance", None) or getattr(data, "amount", None)
