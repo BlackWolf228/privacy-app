@@ -90,25 +90,37 @@ async def create_vault_account(name: str):
 
 
 async def get_wallet_balance(vault_account_id: str, asset: str):
-    """Return the balance of ``asset`` for a specific vault.
+    """Return detailed balance information for ``asset`` in ``vault_account_id``.
 
-    This wrapper relies on Fireblocks' :func:`get_vault_account_asset` API
-    so the balance reflects only the supplied ``vault_account_id``.  The
-    previously used :func:`get_vault_balance_by_asset` aggregates amounts
-    across all vaults in the workspace and is therefore unsuitable when a
-    per-vault balance is needed.
+    The Fireblocks SDK returns slightly different shapes depending on
+    version.  All attributes are therefore accessed defensively using
+    :func:`getattr` so that missing fields simply yield ``None`` instead of
+    raising an exception.
     """
 
     def sync_call():
         with get_fireblocks_client() as client:
-            # ``get_vault_account_asset`` returns the balance for a specific
-            # asset within the given vault.
             future = client.vaults.get_vault_account_asset(vault_account_id, asset)
             response = future.result()
             data = response.data
-            amount = getattr(data, "balance", None) or getattr(data, "amount", None)
+            balance = getattr(data, "balance", None) or getattr(data, "amount", None)
             currency = getattr(data, "id", asset)
-            return {"amount": amount, "currency": currency}
+            pending = (
+                getattr(data, "pending", None)
+                or getattr(data, "pending_balance", None)
+                or getattr(data, "pendingBalance", None)
+            )
+            available = (
+                getattr(data, "available", None)
+                or getattr(data, "available_balance", None)
+                or getattr(data, "availableBalance", None)
+            )
+            return {
+                "balance": balance,
+                "asset": currency,
+                "pending_balance": pending,
+                "available_balance": available,
+            }
 
     return await asyncio.to_thread(sync_call)
 
@@ -165,11 +177,11 @@ async def transfer_between_vault_accounts(
 ):
     """Transfer assets between two Fireblocks vault accounts.
 
-    This helper wraps the SDK's ``transfer_between_vault_accounts`` call and
-    returns a small dictionary with the resulting transaction ``id`` and
-    ``status``/``state`` fields.  The Fireblocks SDK returns different shapes
-    depending on version so attributes are accessed defensively via
-    :func:`getattr`.
+    This helper creates a transaction between two vault accounts using the
+    standard Fireblocks ``create_transaction`` API and returns a small
+    dictionary with the resulting transaction ``id`` and ``status``/``state``
+    fields.  The Fireblocks SDK returns different shapes depending on
+    version so attributes are accessed defensively via :func:`getattr`.
 
     Parameters
     ----------
@@ -194,7 +206,7 @@ async def transfer_between_vault_accounts(
                 },
                 "amount": amount,
             }
-            future = client.transfer_between_vault_accounts(tx_request)
+            future = client.transactions.create_transaction(tx_request)
             response = future.result()
             data = getattr(response, "data", response)
             return {

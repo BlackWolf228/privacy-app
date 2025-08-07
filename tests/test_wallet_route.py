@@ -70,21 +70,28 @@ def setup_route(monkeypatch):
     # Stub models
     user_mod = types.ModuleType("app.models.user")
 
-    class User:  # pragma: no cover - simple data container
-        def __init__(self, id, email_verified=True, has_vault=False):
-            self.id = id
-            self.email_verified = email_verified
-            self.has_vault = has_vault
-
-    user_mod.User = User
-    monkeypatch.setitem(sys.modules, "app.models.user", user_mod)
-
     class Field:
         def __init__(self, name):
             self.name = name
 
         def __eq__(self, other):
             return (self.name, other)
+
+    class User:  # pragma: no cover - simple data container
+        id = Field("id")
+        privacy_id = Field("privacy_id")
+        username = Field("username")
+
+        def __init__(self, id, email_verified=True, has_vault=False, privacy_id="", username=None):
+            self.id = id
+            self.email_verified = email_verified
+            self.has_vault = has_vault
+            self.privacy_id = privacy_id
+            self.username = username
+
+    user_mod.User = User
+    monkeypatch.setitem(sys.modules, "app.models.user", user_mod)
+
 
     wallet_mod = types.ModuleType("app.models.wallet")
 
@@ -165,9 +172,18 @@ def setup_route(monkeypatch):
         calls.append(("create_asset_for_vault", vault_id, asset))
         return f"ADDR_{asset}"
 
+    async def generate_address_for_vault(vault_id: str, asset: str):
+        calls.append(("generate_address_for_vault", vault_id, asset))
+        return f"ADDR_{asset}"
+
     async def get_wallet_balance(vault_id: str, asset: str):
         calls.append(("get_wallet_balance", vault_id, asset))
-        return {"amount": "0", "currency": asset}
+        return {
+            "balance": "0",
+            "asset": asset,
+            "pending_balance": "0",
+            "available_balance": "0",
+        }
 
     async def create_transfer(vault_id: str, asset: str, amount: str, address: str):
         calls.append(("create_transfer", vault_id, asset, amount, address))
@@ -189,6 +205,7 @@ def setup_route(monkeypatch):
 
     fireblocks_mod.create_vault_account = create_vault_account
     fireblocks_mod.create_asset_for_vault = create_asset_for_vault
+    fireblocks_mod.generate_address_for_vault = generate_address_for_vault
     fireblocks_mod.get_wallet_balance = get_wallet_balance
     fireblocks_mod.create_transfer = create_transfer
     fireblocks_mod.transfer_between_vault_accounts = transfer_between_vault_accounts
@@ -221,6 +238,7 @@ def setup_route(monkeypatch):
     from app.routes.wallet import create_user_wallet
     from app.models.wallet import Wallet as RouteWallet
     from app.models.vault import Vault as RouteVault
+    from app.models.user import User as RouteUser
 
     class DummyResult:
         def __init__(self, value):
@@ -233,6 +251,7 @@ def setup_route(monkeypatch):
         def __init__(self):
             self.vault = None
             self.wallets: list[RouteWallet] = []
+            self.users: list[RouteUser] = []
 
         async def execute(self, query):
             if query.model is RouteWallet:
@@ -244,6 +263,11 @@ def setup_route(monkeypatch):
                 if self.vault and all(getattr(self.vault, f[0]) == f[1] for f in query.filters):
                     return DummyResult(self.vault)
                 return DummyResult(None)
+            if query.model is RouteUser:
+                for u in self.users:
+                    if all(getattr(u, f[0]) == f[1] for f in query.filters):
+                        return DummyResult(u)
+                return DummyResult(None)
             return DummyResult(None)
 
         def add(self, obj):
@@ -251,6 +275,8 @@ def setup_route(monkeypatch):
                 self.wallets.append(obj)
             elif isinstance(obj, RouteVault):
                 self.vault = obj
+            elif isinstance(obj, RouteUser):
+                self.users.append(obj)
 
         async def commit(self):
             pass
@@ -358,7 +384,7 @@ def test_internal_transfer_calls_fireblocks(monkeypatch):
     from app.schemas.wallet import InternalTransferRequest
 
     session = DummySession()
-    user = User(id="user-1", email_verified=True, has_vault=True)
+    user = User(id="user-1", email_verified=True, has_vault=True, privacy_id="SRC")
 
     # Source wallet owned by user
     wallet = RouteWallet(
@@ -370,8 +396,20 @@ def test_internal_transfer_calls_fireblocks(monkeypatch):
     )
     session.wallets.append(wallet)
 
+    # Destination user and wallet
+    dest_user = User(id="user-2", email_verified=True, has_vault=True, privacy_id="DEST")
+    session.users.append(dest_user)
+    dest_wallet = RouteWallet(
+        user_id=dest_user.id,
+        vault_id="V2",
+        address="ADDR2",
+        currency="BTC_TEST",
+        network="FIREBLOCKS",
+    )
+    session.wallets.append(dest_wallet)
+
     payload = InternalTransferRequest()
-    payload.destination_vault_id = "V2"
+    payload.destination_user_id = "DEST"
     payload.amount = "0.5"
     payload.asset = "BTC_TEST"
 
