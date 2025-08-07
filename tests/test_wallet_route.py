@@ -382,7 +382,7 @@ def test_adding_existing_asset_returns_409(monkeypatch):
     assert calls == [("create_asset_for_vault", "V1", "BTC_TEST")]
 
 
-def test_internal_transfer_calls_fireblocks(monkeypatch):
+def test_internal_transfer_succeeds_with_verified_destination_email(monkeypatch):
     create_user_wallet, User, DummySession, calls = setup_route(monkeypatch)
     from app.routes.wallet import transfer_between_wallets
     from app.models.wallet import Wallet as RouteWallet
@@ -431,4 +431,50 @@ def test_internal_transfer_calls_fireblocks(monkeypatch):
     ) in calls
     assert getattr(response, "transfer_id", None) == "T2"
     assert session.logs[-1].address == "ADDR2"
+
+
+def test_internal_transfer_rejects_unverified_destination_email(monkeypatch):
+    create_user_wallet, User, DummySession, calls = setup_route(monkeypatch)
+    from app.routes.wallet import transfer_between_wallets
+    from app.models.wallet import Wallet as RouteWallet
+    from app.schemas.wallet import InternalTransferRequest
+
+    session = DummySession()
+    user = User(id="user-1", email_verified=True, has_vault=True, privacy_id="SRC")
+
+    wallet = RouteWallet(
+        user_id=user.id,
+        vault_id="V1",
+        address="ADDR1",
+        currency="BTC_TEST",
+        network="FIREBLOCKS",
+    )
+    session.wallets.append(wallet)
+
+    dest_user = User(
+        id="user-2", email_verified=False, has_vault=True, privacy_id="DEST"
+    )
+    session.users.append(dest_user)
+    dest_wallet = RouteWallet(
+        user_id=dest_user.id,
+        vault_id="V2",
+        address="ADDR2",
+        currency="BTC_TEST",
+        network="FIREBLOCKS",
+    )
+    session.wallets.append(dest_wallet)
+
+    payload = InternalTransferRequest()
+    payload.destination_user_id = "DEST"
+    payload.amount = "0.5"
+    payload.asset = "BTC_TEST"
+
+    try:
+        asyncio.run(
+            transfer_between_wallets(wallet.id, payload, current_user=user, db=session)
+        )
+        assert False, "Expected HTTPException"
+    except Exception as exc:
+        assert getattr(exc, "status_code", None) == 400
+        assert getattr(exc, "detail", None) == "Destination email not verified"
 
