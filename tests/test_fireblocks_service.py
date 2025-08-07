@@ -39,6 +39,14 @@ class DummyFuture:
 
 
 class DummyVaults:
+    def __init__(self, existing=None):
+        self.existing = existing or []
+
+    def get_vault_accounts(self, name_prefix):
+        accounts = [type("Acc", (), acc)() for acc in self.existing if acc["name"].startswith(name_prefix)]
+        data = type("Resp", (), {"data": accounts})()
+        return DummyFuture(data)
+
     def create_vault_account(self, request):
         data = type("Resp", (), {"data": type("Data", (), {"id": "1", "name": request.name})()})()
         return DummyFuture(data)
@@ -52,8 +60,8 @@ class DummyVaults:
 
 
 class DummyClient:
-    def __init__(self):
-        self.vaults = DummyVaults()
+    def __init__(self, existing=None):
+        self.vaults = DummyVaults(existing)
 
     def __enter__(self):
         return self
@@ -67,6 +75,18 @@ def test_create_vault_account(monkeypatch):
     result = asyncio.run(fireblocks.create_vault_account("alice", "BTC_TEST"))
     assert result == {
         "vault_account_id": "1",
+        "name": "alice",
+        "asset": "BTC_TEST",
+        "address": "ADDR123",
+    }
+
+
+def test_create_vault_account_existing(monkeypatch):
+    existing = [{"id": "5", "name": "alice"}]
+    monkeypatch.setattr(fireblocks, "get_fireblocks_client", lambda: DummyClient(existing))
+    result = asyncio.run(fireblocks.create_vault_account("alice", "BTC_TEST"))
+    assert result == {
+        "vault_account_id": "5",
         "name": "alice",
         "asset": "BTC_TEST",
         "address": "ADDR123",

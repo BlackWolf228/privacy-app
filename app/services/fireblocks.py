@@ -32,15 +32,21 @@ async def create_vault_account(name: str, asset: str):
 
     def sync_call():
         with get_fireblocks_client() as client:
-            request = CreateVaultAccountRequest(
-                name=name,
-                hidden_on_ui=False,
-                auto_fuel=False,
-            )
-            future = client.vaults.create_vault_account(request)
-            response = future.result()
+            # Verifică dacă există deja un vault cu acest nume
+            existing_future = client.vaults.get_vault_accounts(name_prefix=name)
+            existing_accounts = existing_future.result().data
 
-            vault_account_id = response.data.id
+            if existing_accounts:
+                vault_account_id = existing_accounts[0].id
+            else:
+                request = CreateVaultAccountRequest(
+                    name=name,
+                    hidden_on_ui=False,
+                    auto_fuel=False,
+                )
+                future = client.vaults.create_vault_account(request)
+                response = future.result()
+                vault_account_id = response.data.id
 
             # Generează și returnează adresa
             client.vaults.generate_new_address(vault_account_id, asset).result()
@@ -49,7 +55,7 @@ async def create_vault_account(name: str, asset: str):
 
             return {
                 "vault_account_id": vault_account_id,
-                "name": response.data.name,
+                "name": name,
                 "asset": asset,
                 "address": address,
             }
