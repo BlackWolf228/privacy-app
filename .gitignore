@@ -1,2 +1,2 @@
 .env
-fireblocks_secret.key
+app/key/fireblocks_secret.key
