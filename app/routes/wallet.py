@@ -8,14 +8,13 @@ from app.config import settings
 from app.models.user import User
 from app.models.wallet import Wallet
 from app.models.wallet_log import WalletLog
-from app.models.vault import Vault
+
 from app.schemas.wallet import (
     WalletOut,
     WalletBalance,
     WithdrawalRequest,
     WithdrawalResponse,
     InternalTransferRequest,
-    DonationRequest,
 )
 from app.utils.auth import get_current_user
 from app.services.fireblocks import (
@@ -389,6 +388,16 @@ async def withdraw_from_wallet(
         dest_address = payload.address
         action = "wallet.withdraw"
 
+    tx = Transaction(
+        user_id=current_user.id,
+        provider="fireblocks",
+        type=TxType.crypto_out,
+        status=TxStatus.pending,
+        amount=payload.amount,
+        currency=payload.asset,
+        address_to=payload.address,
+        provider_ref_id=transfer.get("id"),
+    )
     log = WalletLog(
         vault_id=wallet.vault_id,
         network=wallet.network,
@@ -397,10 +406,62 @@ async def withdraw_from_wallet(
         status=transfer.get("status") or transfer.get("state"),
         action=action,
     )
-    db.add(log)
+    db.add_all([tx, log])
     await db.commit()
+    await db.refresh(tx)
 
     return WithdrawalResponse(
         transfer_id=transfer.get("id", ""),
         status=transfer.get("status") or transfer.get("state", "pending"),
+    )
+
+
+@router.post("/transfer/internal", response_model=InternalTransferResponse)
+async def internal_transfer(
+    payload: InternalTransferRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    if current_user.id == payload.receiver_id:
+        raise HTTPException(status_code=400, detail="Cannot transfer to yourself")
+
+    result = await db.execute(select(User).where(User.id == payload.receiver_id))
+    receiver = result.scalar_one_or_none()
+    if receiver is None:
+        raise HTTPException(status_code=404, detail="Receiver not found")
+
+    group_id = uuid.uuid4()
+
+    sender_tx = Transaction(
+        user_id=current_user.id,
+        provider="system",
+        type=TxType.internal_out,
+        status=TxStatus.confirmed,
+        amount=payload.amount,
+        currency=payload.currency,
+        description=payload.description,
+        group_id=group_id,
+        counterparty_user=payload.receiver_id,
+    )
+    receiver_tx = Transaction(
+        user_id=payload.receiver_id,
+        provider="system",
+        type=TxType.internal_in,
+        status=TxStatus.confirmed,
+        amount=payload.amount,
+        currency=payload.currency,
+        description=payload.description,
+        group_id=group_id,
+        counterparty_user=current_user.id,
+    )
+
+    db.add_all([sender_tx, receiver_tx])
+    await db.commit()
+    await db.refresh(sender_tx)
+    await db.refresh(receiver_tx)
+
+    return InternalTransferResponse(
+        group_id=group_id,
+        sender_transaction_id=sender_tx.id,
+        receiver_transaction_id=receiver_tx.id,
     )
