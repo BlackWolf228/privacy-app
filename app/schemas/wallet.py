@@ -31,6 +31,11 @@ class InternalTransferRequest(BaseModel):
     amount: str
     asset: str
 
+
+class DonationRequest(BaseModel):
+    amount: str
+    asset: str
+
 class WithdrawalResponse(BaseModel):
     transfer_id: str
     status: str

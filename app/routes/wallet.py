@@ -4,6 +4,7 @@ from sqlalchemy.future import select
 from uuid import UUID
 
 from app.database import get_db
+from app.config import settings
 from app.models.user import User
 from app.models.wallet import Wallet
 from app.models.wallet_log import WalletLog
@@ -14,6 +15,7 @@ from app.schemas.wallet import (
     WithdrawalRequest,
     WithdrawalResponse,
     InternalTransferRequest,
+    DonationRequest,
 )
 from app.utils.auth import get_current_user
 from app.services.fireblocks import (
@@ -256,6 +258,94 @@ async def transfer_between_wallets(
     )
 
 
+@router.post("/{wallet_id}/donate", response_model=WithdrawalResponse)
+async def donate(
+    wallet_id: UUID,
+    payload: DonationRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Donate funds from a user's wallet to the configured donation account."""
+
+    result = await db.execute(
+        select(Wallet).where(
+            Wallet.id == wallet_id,
+            Wallet.user_id == current_user.id,
+        )
+    )
+    wallet = result.scalar_one_or_none()
+    if wallet is None:
+        raise HTTPException(status_code=404, detail="Wallet not found")
+
+    if payload.asset != wallet.currency:
+        raise HTTPException(status_code=400, detail="Asset mismatch with wallet")
+
+    if not settings.DONATION_PRIVACY_ID:
+        raise HTTPException(status_code=500, detail="Donation destination not configured")
+
+    result = await db.execute(
+        select(User).where(User.privacy_id == settings.DONATION_PRIVACY_ID)
+    )
+    dest_user = result.scalar_one_or_none()
+    if dest_user is None:
+        raise HTTPException(status_code=404, detail="Donation user not found")
+
+    result = await db.execute(
+        select(Wallet).where(
+            Wallet.user_id == dest_user.id,
+            Wallet.currency == payload.asset,
+            Wallet.network == "FIREBLOCKS",
+        )
+    )
+    dest_wallet = result.scalar_one_or_none()
+
+    if dest_wallet is None:
+        result = await db.execute(select(Vault).where(Vault.user_id == dest_user.id))
+        dest_vault = result.scalar_one_or_none()
+        if dest_vault is None:
+            vault_data = await create_vault_account(str(dest_user.id))
+            dest_vault = Vault(vault_id=vault_data["vault_account_id"], user_id=dest_user.id)
+            dest_user.has_vault = True
+            db.add(dest_vault)
+            db.add(dest_user)
+            await db.commit()
+            await db.refresh(dest_vault)
+        try:
+            address = await create_asset_for_vault(dest_vault.vault_id, payload.asset)
+        except AssetAlreadyExistsError:
+            address = await generate_address_for_vault(dest_vault.vault_id, payload.asset)
+        dest_wallet = Wallet(
+            user_id=dest_user.id,
+            vault_id=dest_vault.vault_id,
+            address=address,
+            currency=payload.asset,
+            network="FIREBLOCKS",
+        )
+        db.add(dest_wallet)
+        await db.commit()
+        await db.refresh(dest_wallet)
+
+    transfer = await transfer_between_vault_accounts(
+        wallet.vault_id, dest_wallet.vault_id, payload.asset, payload.amount
+    )
+
+    log = WalletLog(
+        vault_id=wallet.vault_id,
+        network=wallet.network,
+        address=dest_wallet.address,
+        balance=payload.amount,
+        status=transfer.get("status") or transfer.get("state"),
+        action="wallet.donation",
+    )
+    db.add(log)
+    await db.commit()
+
+    return WithdrawalResponse(
+        transfer_id=transfer.get("id", ""),
+        status=transfer.get("status") or transfer.get("state", "pending"),
+    )
+
+
 @router.post("/{wallet_id}/withdraw", response_model=WithdrawalResponse)
 async def withdraw_from_wallet(
     wallet_id: UUID,
@@ -276,18 +366,36 @@ async def withdraw_from_wallet(
 
     if payload.asset != wallet.currency:
         raise HTTPException(status_code=400, detail="Asset mismatch with wallet")
-
-    transfer = await create_transfer(
-        wallet.vault_id, payload.asset, payload.amount, payload.address
+    # Check if the destination address corresponds to an internal wallet
+    result = await db.execute(
+        select(Wallet).where(
+            Wallet.address == payload.address,
+            Wallet.currency == payload.asset,
+            Wallet.network == "FIREBLOCKS",
+        )
     )
+    dest_wallet = result.scalar_one_or_none()
+
+    if dest_wallet:
+        transfer = await transfer_between_vault_accounts(
+            wallet.vault_id, dest_wallet.vault_id, payload.asset, payload.amount
+        )
+        dest_address = dest_wallet.address
+        action = "wallet.withdraw.internal"
+    else:
+        transfer = await create_transfer(
+            wallet.vault_id, payload.asset, payload.amount, payload.address
+        )
+        dest_address = payload.address
+        action = "wallet.withdraw"
 
     log = WalletLog(
         vault_id=wallet.vault_id,
         network=wallet.network,
-        address=payload.address,
+        address=dest_address,
         balance=payload.amount,
         status=transfer.get("status") or transfer.get("state"),
-        action="wallet.withdraw",
+        action=action,
     )
     db.add(log)
     await db.commit()
