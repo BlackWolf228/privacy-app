@@ -4,7 +4,7 @@ from pydantic import BaseModel
 
 class WalletOut(BaseModel):
     id: UUID
-    wallet_id: str
+    vault_id: str
     address: str
     currency: str
     network: str
@@ -14,12 +14,25 @@ class WalletOut(BaseModel):
         from_attributes = True
 
 class WalletBalance(BaseModel):
-    wallet_id: str
-    amount: str
+    wallet_id: UUID
+    balance: str
     asset: str
+    pending_balance: str | None = None
+    available_balance: str | None = None
 
 class WithdrawalRequest(BaseModel):
     address: str
+    amount: str
+    asset: str
+
+
+class InternalTransferRequest(BaseModel):
+    destination_user_id: str
+    amount: str
+    asset: str
+
+
+class DonationRequest(BaseModel):
     amount: str
     asset: str
 
