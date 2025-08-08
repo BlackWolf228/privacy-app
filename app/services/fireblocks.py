@@ -128,7 +128,7 @@ async def get_wallet_balance(vault_account_id: str, asset: str):
 
 
 async def create_transfer(
-    vault_account_id: str, asset: str, amount: str, destination_address: str
+    vault_account_id: str, asset: str, _amount: str, destination_address: str
 ):
     """Create a transfer from a vault account to an external address.
 
@@ -165,8 +165,8 @@ async def create_transfer(
                 # that structure now belongs under ``amountInfo``.  Preserve
                 # the richer structure for compatibility while sending the
                 # string value in ``amount``.
-                "amount": amount,
-                "amountInfo": TransactionRequestAmount(amount=amount),
+                "amount": TransactionRequestAmount(_amount),
+               # "amountInfo": TransactionRequestAmount(amount=amount),
             }
             # The Fireblocks SDK expects keyword arguments for optional
             # parameters.  Passing the transaction request positionally causes
@@ -188,7 +188,7 @@ async def create_transfer(
 
 
 async def transfer_between_vault_accounts(
-    source_vault_id: str, destination_vault_id: str, asset: str, amount: str
+    source_vault_id: str, destination_vault_id: str, asset: str, _amount: str
 ):
     """Transfer assets between two Fireblocks vault accounts.
 
@@ -223,8 +223,8 @@ async def transfer_between_vault_accounts(
                 # ``TransactionRequestAmount`` structure is provided under
                 # ``amountInfo`` for backwards compatibility with Fireblocks
                 # SDK expectations.
-                "amount": amount,
-                "amountInfo": TransactionRequestAmount(amount=amount),
+                "amount": TransactionRequestAmount(_amount),
+                #"amountInfo": TransactionRequestAmount(amount=amount),
             }
             idempotency_key = uuid.uuid4().hex
             # Similar to the external transfer above, the SDK validates
