@@ -41,6 +41,9 @@ class Settings:
             os.getenv("FIREBLOCKS_API_SECRET")
         )
 
+        # Donation
+        self.DONATION_PRIVACY_ID = os.getenv("DONATION_PRIVACY_ID")
+
     @staticmethod
     def _load_secret(value: str | None) -> str | None:
         """Return the contents of *value* if it is a path to a file.

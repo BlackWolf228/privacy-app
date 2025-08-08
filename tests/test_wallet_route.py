@@ -98,6 +98,7 @@ def setup_route(monkeypatch):
     class Wallet:  # pragma: no cover - simple container
         id = Field("id")
         user_id = Field("user_id")
+        address = Field("address")
         currency = Field("currency")
         network = Field("network")
 
@@ -152,6 +153,7 @@ def setup_route(monkeypatch):
         "WithdrawalRequest",
         "WithdrawalResponse",
         "InternalTransferRequest",
+        "DonationRequest",
     ]:
         setattr(schemas_wallet_mod, name, _model_factory(name))
     monkeypatch.setitem(sys.modules, "app.schemas.wallet", schemas_wallet_mod)
@@ -477,4 +479,144 @@ def test_internal_transfer_rejects_unverified_destination_email(monkeypatch):
     except Exception as exc:
         assert getattr(exc, "status_code", None) == 400
         assert getattr(exc, "detail", None) == "Destination email not verified"
+
+
+def test_withdraw_internal_transfer_when_address_matches(monkeypatch):
+    create_user_wallet, User, DummySession, calls = setup_route(monkeypatch)
+    from app.routes.wallet import withdraw_from_wallet
+    from app.models.wallet import Wallet as RouteWallet
+    from app.schemas.wallet import WithdrawalRequest
+
+    session = DummySession()
+    user = User(id="user-1", email_verified=True, has_vault=True)
+
+    wallet = RouteWallet(
+        user_id=user.id,
+        vault_id="V1",
+        address="SRCADDR",
+        currency="BTC_TEST",
+        network="FIREBLOCKS",
+    )
+    session.add(wallet)
+
+    dest_wallet = RouteWallet(
+        user_id="user-2",
+        vault_id="V2",
+        address="DESTADDR",
+        currency="BTC_TEST",
+        network="FIREBLOCKS",
+    )
+    session.add(dest_wallet)
+
+    payload = WithdrawalRequest(address="DESTADDR", amount="1", asset="BTC_TEST")
+
+    result = asyncio.run(
+        withdraw_from_wallet(wallet.id, payload, current_user=user, db=session)
+    )
+
+    assert result.transfer_id == "T2"
+    assert calls == [("transfer_between_vault_accounts", "V1", "V2", "BTC_TEST", "1")]
+
+
+def test_withdraw_external_transfer_when_unknown_address(monkeypatch):
+    create_user_wallet, User, DummySession, calls = setup_route(monkeypatch)
+    from app.routes.wallet import withdraw_from_wallet
+    from app.models.wallet import Wallet as RouteWallet
+    from app.schemas.wallet import WithdrawalRequest
+
+    session = DummySession()
+    user = User(id="user-1", email_verified=True, has_vault=True)
+
+    wallet = RouteWallet(
+        user_id=user.id,
+        vault_id="V1",
+        address="SRCADDR",
+        currency="BTC_TEST",
+        network="FIREBLOCKS",
+    )
+    session.add(wallet)
+
+    payload = WithdrawalRequest(address="UNKNOWN", amount="1", asset="BTC_TEST")
+
+    result = asyncio.run(
+        withdraw_from_wallet(wallet.id, payload, current_user=user, db=session)
+    )
+
+    assert result.transfer_id == "T1"
+    assert calls == [("create_transfer", "V1", "BTC_TEST", "1", "UNKNOWN")]
+
+
+def test_donation_transfers_to_configured_privacy_id(monkeypatch):
+    create_user_wallet, User, DummySession, calls = setup_route(monkeypatch)
+    from app.routes.wallet import donate
+    from app.models.wallet import Wallet as RouteWallet
+    from app.schemas.wallet import DonationRequest
+    from app.config import settings
+
+    settings.DONATION_PRIVACY_ID = "DONATE"
+
+    session = DummySession()
+    user = User(id="user-1", email_verified=True, has_vault=True)
+
+    wallet = RouteWallet(
+        user_id=user.id,
+        vault_id="V1",
+        address="SRCADDR",
+        currency="BTC_TEST",
+        network="FIREBLOCKS",
+    )
+    session.add(wallet)
+
+    dest_user = User(id="user-2", email_verified=True, has_vault=True, privacy_id="DONATE")
+    session.add(dest_user)
+    dest_wallet = RouteWallet(
+        user_id=dest_user.id,
+        vault_id="V2",
+        address="DONADDR",
+        currency="BTC_TEST",
+        network="FIREBLOCKS",
+    )
+    session.add(dest_wallet)
+
+    payload = DonationRequest(amount="1", asset="BTC_TEST")
+
+    result = asyncio.run(donate(wallet.id, payload, current_user=user, db=session))
+
+    assert result.transfer_id == "T2"
+    assert calls == [("transfer_between_vault_accounts", "V1", "V2", "BTC_TEST", "1")]
+
+
+def test_donation_asset_mismatch_raises(monkeypatch):
+    create_user_wallet, User, DummySession, calls = setup_route(monkeypatch)
+    from app.routes.wallet import donate
+    from app.models.wallet import Wallet as RouteWallet
+    from app.schemas.wallet import DonationRequest
+    from app.config import settings
+
+    settings.DONATION_PRIVACY_ID = "DONATE"
+
+    session = DummySession()
+    user = User(id="user-1", email_verified=True, has_vault=True)
+
+    wallet = RouteWallet(
+        user_id=user.id,
+        vault_id="V1",
+        address="SRCADDR",
+        currency="BTC_TEST",
+        network="FIREBLOCKS",
+    )
+    session.add(wallet)
+
+    try:
+        asyncio.run(
+            donate(
+                wallet.id,
+                DonationRequest(amount="1", asset="ETH_TEST"),
+                current_user=user,
+                db=session,
+            )
+        )
+        assert False, "Expected HTTPException"
+    except Exception as exc:
+        assert getattr(exc, "status_code", None) == 400
 
