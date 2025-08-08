@@ -1,11 +1,21 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
+import uuid
+
 from app.database import get_db
 from app.models.user import User
 from app.models.wallet import Wallet
 from app.models.wallet_log import WalletLog
-from app.schemas.wallet import WalletOut, WalletBalance, WithdrawalRequest, WithdrawalResponse
+from app.models.transaction import Transaction, TxType, TxStatus
+from app.schemas.wallet import (
+    WalletOut,
+    WalletBalance,
+    WithdrawalRequest,
+    WithdrawalResponse,
+    InternalTransferRequest,
+    InternalTransferResponse,
+)
 from app.utils.auth import get_current_user
 from app.services.fireblocks import create_vault_account
 
@@ -115,6 +125,16 @@ async def withdraw_from_wallet(
         wallet.wallet_id, payload.asset, payload.amount, payload.address
     )
 
+    tx = Transaction(
+        user_id=current_user.id,
+        provider="fireblocks",
+        type=TxType.crypto_out,
+        status=TxStatus.pending,
+        amount=payload.amount,
+        currency=payload.asset,
+        address_to=payload.address,
+        provider_ref_id=transfer.get("id"),
+    )
     log = WalletLog(
         wallet_id=wallet.wallet_id,
         network=wallet.network,
@@ -123,10 +143,62 @@ async def withdraw_from_wallet(
         status=transfer.get("status") or transfer.get("state"),
         action="wallet.withdraw",
     )
-    db.add(log)
+    db.add_all([tx, log])
     await db.commit()
+    await db.refresh(tx)
 
     return WithdrawalResponse(
         transfer_id=transfer.get("id", ""),
         status=transfer.get("status") or transfer.get("state", "pending"),
+    )
+
+
+@router.post("/transfer/internal", response_model=InternalTransferResponse)
+async def internal_transfer(
+    payload: InternalTransferRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    if current_user.id == payload.receiver_id:
+        raise HTTPException(status_code=400, detail="Cannot transfer to yourself")
+
+    result = await db.execute(select(User).where(User.id == payload.receiver_id))
+    receiver = result.scalar_one_or_none()
+    if receiver is None:
+        raise HTTPException(status_code=404, detail="Receiver not found")
+
+    group_id = uuid.uuid4()
+
+    sender_tx = Transaction(
+        user_id=current_user.id,
+        provider="system",
+        type=TxType.internal_out,
+        status=TxStatus.confirmed,
+        amount=payload.amount,
+        currency=payload.currency,
+        description=payload.description,
+        group_id=group_id,
+        counterparty_user=payload.receiver_id,
+    )
+    receiver_tx = Transaction(
+        user_id=payload.receiver_id,
+        provider="system",
+        type=TxType.internal_in,
+        status=TxStatus.confirmed,
+        amount=payload.amount,
+        currency=payload.currency,
+        description=payload.description,
+        group_id=group_id,
+        counterparty_user=current_user.id,
+    )
+
+    db.add_all([sender_tx, receiver_tx])
+    await db.commit()
+    await db.refresh(sender_tx)
+    await db.refresh(receiver_tx)
+
+    return InternalTransferResponse(
+        group_id=group_id,
+        sender_transaction_id=sender_tx.id,
+        receiver_transaction_id=receiver_tx.id,
     )
