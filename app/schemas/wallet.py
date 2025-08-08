@@ -1,7 +1,7 @@
 from datetime import datetime
 from uuid import UUID
 from typing import Optional
-from pydantic import BaseModel
+from pydantic import BaseModel, condecimal, constr
 
 class WalletCreate(BaseModel):
     currency: str
@@ -23,10 +23,18 @@ class WalletBalance(BaseModel):
     amount: str
     currency: str
 
-class WithdrawalRequest(BaseModel):
-    address: str
-    amount: str
+class ExternalTransferRequest(BaseModel):
+    address: constr(min_length=1)
+    amount: condecimal(gt=0)
 
-class WithdrawalResponse(BaseModel):
-    transfer_id: str
+class InternalTransferRequest(BaseModel):
+    to_wallet_id: constr(min_length=1)
+    amount: condecimal(gt=0)
+
+class TransactionResponse(BaseModel):
+    transaction_id: UUID
     status: str
+
+
+class ExternalTransferResponse(TransactionResponse):
+    transfer_id: str

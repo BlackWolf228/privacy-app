@@ -5,13 +5,15 @@ from sqlalchemy.future import select
 from app.database import get_db
 from app.models.user import User
 from app.models.wallet import Wallet
-from app.models.wallet_log import WalletLog
+from app.models.transaction import Transaction, TxType, TxStatus
 from app.schemas.wallet import (
     WalletCreate,
     WalletOut,
     WalletBalance,
-    WithdrawalRequest,
-    WithdrawalResponse,
+    ExternalTransferRequest,
+    ExternalTransferResponse,
+    InternalTransferRequest,
+    TransactionResponse,
 )
 from app.services.circle import (
     SUPPORTED_NETWORKS,
@@ -69,16 +71,6 @@ async def create_user_wallet(
     await db.commit()
     await db.refresh(wallet)
 
-    log = WalletLog(
-        wallet_id=wallet.wallet_id,
-        network=wallet.network,
-        address=wallet.address,
-        balance=None,
-        status="created",
-        action="wallet.created",
-    )
-    db.add(log)
-    await db.commit()
     return wallet
 
 @router.get("/{wallet_id}/balance", response_model=WalletBalance)
@@ -99,23 +91,71 @@ async def wallet_balance(
 
     data = await get_wallet_balance(wallet.wallet_id)
 
-    log = WalletLog(
-        wallet_id=wallet.wallet_id,
-        network=wallet.network,
-        address=wallet.address,
-        balance=data.get("amount"),
-        status="balance",
-        action="wallet.balance.check",
-    )
-    db.add(log)
-    await db.commit()
-
     return WalletBalance(wallet_id=wallet.wallet_id, amount=data["amount"], currency=data["currency"])
 
-@router.post("/{wallet_id}/withdraw", response_model=WithdrawalResponse)
-async def withdraw_from_wallet(
+
+@router.post("/{wallet_id}/internal", response_model=TransactionResponse)
+async def internal_transfer(
     wallet_id: str,
-    payload: WithdrawalRequest,
+    payload: InternalTransferRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(
+        select(Wallet).where(
+            Wallet.wallet_id == wallet_id,
+            Wallet.user_id == current_user.id,
+        )
+    )
+    from_wallet = result.scalar_one_or_none()
+    if from_wallet is None:
+        raise HTTPException(status_code=404, detail="Wallet not found")
+
+    result = await db.execute(select(Wallet).where(Wallet.wallet_id == payload.to_wallet_id))
+    to_wallet = result.scalar_one_or_none()
+    if to_wallet is None:
+        raise HTTPException(status_code=404, detail="Destination wallet not found")
+
+    if from_wallet.currency != to_wallet.currency or from_wallet.network != to_wallet.network:
+        raise HTTPException(status_code=400, detail="Mismatched currency or network")
+
+    amount = payload.amount
+
+    tx_out = Transaction(
+        user_id=current_user.id,
+        wallet_id=from_wallet.id,
+        provider="baas",
+        type=TxType.internal_out,
+        status=TxStatus.confirmed,
+        amount=amount,
+        currency=from_wallet.currency,
+        address_to=to_wallet.address,
+        counterparty_user=to_wallet.user_id,
+    )
+
+    tx_in = Transaction(
+        user_id=to_wallet.user_id,
+        wallet_id=to_wallet.id,
+        provider="baas",
+        type=TxType.internal_in,
+        status=TxStatus.confirmed,
+        amount=amount,
+        currency=to_wallet.currency,
+        address_from=from_wallet.address,
+        counterparty_user=current_user.id,
+    )
+
+    db.add_all([tx_out, tx_in])
+    await db.commit()
+    await db.refresh(tx_out)
+
+    return TransactionResponse(transaction_id=tx_out.id, status=tx_out.status.value)
+
+
+@router.post("/{wallet_id}/external-transfer", response_model=ExternalTransferResponse)
+async def external_transfer(
+    wallet_id: str,
+    payload: ExternalTransferRequest,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -131,18 +171,31 @@ async def withdraw_from_wallet(
 
     transfer = await create_transfer(wallet.wallet_id, payload.address, payload.amount, wallet.network)
 
-    log = WalletLog(
-        wallet_id=wallet.wallet_id,
-        network=wallet.network,
-        address=payload.address,
-        balance=payload.amount,
-        status=transfer.get("state"),
-        action="wallet.withdraw",
+    state = (transfer.get("state") or "").lower()
+    status = (
+        TxStatus.confirmed
+        if state == "complete"
+        else TxStatus.failed if state == "failed" else TxStatus.pending
     )
-    db.add(log)
-    await db.commit()
 
-    return WithdrawalResponse(
+    transaction = Transaction(
+        user_id=current_user.id,
+        wallet_id=wallet.id,
+        provider="baas",
+        type=TxType.crypto_out,
+        status=status,
+        amount=payload.amount,
+        currency=wallet.currency,
+        address_to=payload.address,
+        provider_ref_id=transfer.get("id"),
+        chain=wallet.network,
+    )
+    db.add(transaction)
+    await db.commit()
+    await db.refresh(transaction)
+
+    return ExternalTransferResponse(
+        transaction_id=transaction.id,
         transfer_id=transfer.get("id", ""),
-        status=transfer.get("state", "pending"),
+        status=transaction.status.value,
     )
