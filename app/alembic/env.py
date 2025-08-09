@@ -11,7 +11,7 @@ if config.config_file_name is not None:
 # înlocuiește URL-ul
 config.set_main_option("sqlalchemy.url", settings.DATABASE_URL.replace("asyncpg", "psycopg2"))
 
-from app.models import user, twofa, wallet, wallet_log, vault  # asigură-te că importă toate modelele
+from app.models import user, twofa, wallet, vault  # asigură-te că importă toate modelele
 
 
 # Target metadata

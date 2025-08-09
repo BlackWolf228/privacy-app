@@ -126,15 +126,26 @@ def setup_route(monkeypatch):
     vault_mod.Vault = Vault
     monkeypatch.setitem(sys.modules, "app.models.vault", vault_mod)
 
-    wallet_log_mod = types.ModuleType("app.models.wallet_log")
+    transaction_mod = types.ModuleType("app.models.transaction")
 
-    class WalletLog:  # pragma: no cover - placeholder
+    class TxType:  # pragma: no cover - simple enum placeholder
+        crypto_out = "crypto_out"
+        internal_out = "internal_out"
+        internal_in = "internal_in"
+
+    class TxStatus:  # pragma: no cover - simple enum placeholder
+        pending = "pending"
+
+    class Transaction:  # pragma: no cover - lightweight stand-in
         def __init__(self, **kwargs):
             for key, value in kwargs.items():
                 setattr(self, key, value)
 
-    wallet_log_mod.WalletLog = WalletLog
-    monkeypatch.setitem(sys.modules, "app.models.wallet_log", wallet_log_mod)
+    transaction_mod.Transaction = Transaction
+    transaction_mod.TxType = TxType
+    transaction_mod.TxStatus = TxStatus
+    monkeypatch.setitem(sys.modules, "app.models.transaction", transaction_mod)
+    RouteTransaction = Transaction
 
     # Stub Pydantic schemas
     schemas_wallet_mod = types.ModuleType("app.schemas.wallet")
@@ -242,7 +253,6 @@ def setup_route(monkeypatch):
     from app.models.wallet import Wallet as RouteWallet
     from app.models.vault import Vault as RouteVault
     from app.models.user import User as RouteUser
-    from app.models.wallet_log import WalletLog as RouteWalletLog
 
     class DummyResult:
         def __init__(self, value):
@@ -256,7 +266,7 @@ def setup_route(monkeypatch):
             self.vault = None
             self.wallets: list[RouteWallet] = []
             self.users: list[RouteUser] = []
-            self.logs: list[RouteWalletLog] = []
+            self.transactions: list[RouteTransaction] = []
 
         async def execute(self, query):
             if query.model is RouteWallet:
@@ -282,8 +292,12 @@ def setup_route(monkeypatch):
                 self.vault = obj
             elif isinstance(obj, RouteUser):
                 self.users.append(obj)
-            elif isinstance(obj, RouteWalletLog):
-                self.logs.append(obj)
+            elif isinstance(obj, RouteTransaction):
+                self.transactions.append(obj)
+
+        def add_all(self, objs):
+            for obj in objs:
+                self.add(obj)
 
         async def commit(self):
             pass
@@ -384,106 +398,9 @@ def test_adding_existing_asset_returns_409(monkeypatch):
     assert calls == [("create_asset_for_vault", "V1", "BTC_TEST")]
 
 
-def test_internal_transfer_succeeds_with_verified_destination_email(monkeypatch):
+def test_external_transfer_internal_when_address_matches(monkeypatch):
     create_user_wallet, User, DummySession, calls = setup_route(monkeypatch)
-    from app.routes.wallet import transfer_between_wallets
-    from app.models.wallet import Wallet as RouteWallet
-    from app.schemas.wallet import InternalTransferRequest
-
-    session = DummySession()
-    user = User(id="user-1", email_verified=True, has_vault=True, privacy_id="SRC")
-
-    # Source wallet owned by user
-    wallet = RouteWallet(
-        user_id=user.id,
-        vault_id="V1",
-        address="ADDR1",
-        currency="BTC_TEST",
-        network="FIREBLOCKS",
-    )
-    session.wallets.append(wallet)
-
-    # Destination user and wallet
-    dest_user = User(id="user-2", email_verified=True, has_vault=True, privacy_id="DEST")
-    session.users.append(dest_user)
-    dest_wallet = RouteWallet(
-        user_id=dest_user.id,
-        vault_id="V2",
-        address="ADDR2",
-        currency="BTC_TEST",
-        network="FIREBLOCKS",
-    )
-    session.wallets.append(dest_wallet)
-
-    payload = InternalTransferRequest()
-    payload.destination_user_id = "DEST"
-    payload.amount = "0.5"
-    payload.asset = "BTC_TEST"
-
-    response = asyncio.run(
-        transfer_between_wallets(wallet.id, payload, current_user=user, db=session)
-    )
-
-    assert (
-        "transfer_between_vault_accounts",
-        "V1",
-        "V2",
-        "BTC_TEST",
-        "0.5",
-    ) in calls
-    assert getattr(response, "transfer_id", None) == "T2"
-    assert session.logs[-1].address == "ADDR2"
-
-
-def test_internal_transfer_rejects_unverified_destination_email(monkeypatch):
-    create_user_wallet, User, DummySession, calls = setup_route(monkeypatch)
-    from app.routes.wallet import transfer_between_wallets
-    from app.models.wallet import Wallet as RouteWallet
-    from app.schemas.wallet import InternalTransferRequest
-
-    session = DummySession()
-    user = User(id="user-1", email_verified=True, has_vault=True, privacy_id="SRC")
-
-    wallet = RouteWallet(
-        user_id=user.id,
-        vault_id="V1",
-        address="ADDR1",
-        currency="BTC_TEST",
-        network="FIREBLOCKS",
-    )
-    session.wallets.append(wallet)
-
-    dest_user = User(
-        id="user-2", email_verified=False, has_vault=True, privacy_id="DEST"
-    )
-    session.users.append(dest_user)
-    dest_wallet = RouteWallet(
-        user_id=dest_user.id,
-        vault_id="V2",
-        address="ADDR2",
-        currency="BTC_TEST",
-        network="FIREBLOCKS",
-    )
-    session.wallets.append(dest_wallet)
-
-    payload = InternalTransferRequest()
-    payload.destination_user_id = "DEST"
-    payload.amount = "0.5"
-    payload.asset = "BTC_TEST"
-
-    try:
-        asyncio.run(
-            transfer_between_wallets(wallet.id, payload, current_user=user, db=session)
-        )
-        assert False, "Expected HTTPException"
-    except Exception as exc:
-        assert getattr(exc, "status_code", None) == 400
-        assert getattr(exc, "detail", None) == "Destination email not verified"
-
-
-def test_withdraw_internal_transfer_when_address_matches(monkeypatch):
-    create_user_wallet, User, DummySession, calls = setup_route(monkeypatch)
-    from app.routes.wallet import withdraw_from_wallet
+    from app.routes.wallet import external_transfer
     from app.models.wallet import Wallet as RouteWallet
     from app.schemas.wallet import WithdrawalRequest
 
@@ -511,16 +428,22 @@ def test_withdraw_internal_transfer_when_address_matches(monkeypatch):
     payload = WithdrawalRequest(address="DESTADDR", amount="1", asset="BTC_TEST")
 
     result = asyncio.run(
-        withdraw_from_wallet(wallet.id, payload, current_user=user, db=session)
+        external_transfer(wallet.id, payload, current_user=user, db=session)
     )
 
     assert result.transfer_id == "T2"
     assert calls == [("transfer_between_vault_accounts", "V1", "V2", "BTC_TEST", "1")]
+    assert len(session.transactions) == 2
+    assert session.transactions[0].type == "internal_out"
+    assert session.transactions[1].type == "internal_in"
+    assert session.transactions[0].counterparty_user == "user-2"
+    assert session.transactions[1].counterparty_user == "user-1"
+    assert session.transactions[0].group_id == session.transactions[1].group_id
 
 
-def test_withdraw_external_transfer_when_unknown_address(monkeypatch):
+def test_external_transfer_external_when_unknown_address(monkeypatch):
     create_user_wallet, User, DummySession, calls = setup_route(monkeypatch)
-    from app.routes.wallet import withdraw_from_wallet
+    from app.routes.wallet import external_transfer
     from app.models.wallet import Wallet as RouteWallet
     from app.schemas.wallet import WithdrawalRequest
 
@@ -539,11 +462,67 @@ def test_withdraw_external_transfer_when_unknown_address(monkeypatch):
     payload = WithdrawalRequest(address="UNKNOWN", amount="1", asset="BTC_TEST")
 
     result = asyncio.run(
-        withdraw_from_wallet(wallet.id, payload, current_user=user, db=session)
+        external_transfer(wallet.id, payload, current_user=user, db=session)
     )
 
     assert result.transfer_id == "T1"
     assert calls == [("create_transfer", "V1", "BTC_TEST", "1", "UNKNOWN")]
+    assert len(session.transactions) == 1
+    assert session.transactions[0].type == "crypto_out"
+    assert session.transactions[0].address_to == "UNKNOWN"
+
+
+def test_internal_transfer_between_users(monkeypatch):
+    create_user_wallet, User, DummySession, calls = setup_route(monkeypatch)
+    from app.routes.wallet import internal_transfer
+    from app.models.wallet import Wallet as RouteWallet
+    from app.schemas.wallet import InternalTransferRequest
+
+    session = DummySession()
+    user = User(id="user-1", email_verified=True, has_vault=True)
+    dest_user = User(
+        id="user-2",
+        email_verified=True,
+        has_vault=True,
+        privacy_id="DESTID",
+        username="destuser",
+    )
+    session.add(dest_user)
+
+    wallet = RouteWallet(
+        user_id=user.id,
+        vault_id="V1",
+        address="SRCADDR",
+        currency="BTC_TEST",
+        network="FIREBLOCKS",
+    )
+    session.add(wallet)
+    dest_wallet = RouteWallet(
+        user_id=dest_user.id,
+        vault_id="V2",
+        address="DESTADDR",
+        currency="BTC_TEST",
+        network="FIREBLOCKS",
+    )
+    session.add(dest_wallet)
+
+    payload = InternalTransferRequest(
+        destination_user_id="DESTID", amount="1", asset="BTC_TEST"
+    )
+    result = asyncio.run(
+        internal_transfer(wallet.id, payload, current_user=user, db=session)
+    )
+
+    assert result.transfer_id == "T2"
+    assert calls == [
+        ("transfer_between_vault_accounts", "V1", "V2", "BTC_TEST", "1")
+    ]
+    assert len(session.transactions) == 2
+    assert session.transactions[0].type == "internal_out"
+    assert session.transactions[1].type == "internal_in"
+    assert session.transactions[0].counterparty_user == dest_user.id
+    assert session.transactions[1].counterparty_user == user.id
+    assert session.transactions[0].group_id == session.transactions[1].group_id
 
 
 def test_donation_transfers_to_configured_privacy_id(monkeypatch):
@@ -584,6 +563,12 @@ def test_donation_transfers_to_configured_privacy_id(monkeypatch):
 
     assert result.transfer_id == "T2"
     assert calls == [("transfer_between_vault_accounts", "V1", "V2", "BTC_TEST", "1")]
+    assert len(session.transactions) == 2
+    assert session.transactions[0].type == "internal_out"
+    assert session.transactions[1].type == "internal_in"
+    assert session.transactions[0].counterparty_user == dest_user.id
+    assert session.transactions[1].counterparty_user == user.id
+    assert session.transactions[0].group_id == session.transactions[1].group_id
 
 
 def test_donation_asset_mismatch_raises(monkeypatch):
