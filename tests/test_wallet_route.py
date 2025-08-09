@@ -205,8 +205,8 @@ def setup_route(monkeypatch):
         calls.append(("create_transfer", vault_id, asset, amount, address))
         return {"id": "T1", "status": "COMPLETED"}
 
-    async def estimate_transaction_fee(asset: str, _amount: str):
-        calls.append(("estimate_transaction_fee", asset, _amount))
+    async def estimate_transaction_fee(vault_id: str, asset: str, _amount: str):
+        calls.append(("estimate_transaction_fee", vault_id, asset, _amount))
         return {"low": "0.1", "medium": "0.2", "high": "0.3"}
 
     async def transfer_between_vault_accounts(
@@ -632,10 +632,10 @@ def test_estimate_fee_route(monkeypatch):
     from app.schemas.wallet import FeeEstimateRequest
 
     user = User(id="user-1", email_verified=True)
-    payload = FeeEstimateRequest(asset="BTC_TEST", amount="0.5")
+    payload = FeeEstimateRequest(asset="BTC_TEST", amount="0.5", vault_id="V1")
 
     result = asyncio.run(estimate_fee(payload, current_user=user))
 
     assert result == {"low": "0.1", "medium": "0.2", "high": "0.3"}
-    assert calls[-1] == ("estimate_transaction_fee", "BTC_TEST", "0.5")
+    assert calls[-1] == ("estimate_transaction_fee", "V1", "BTC_TEST", "0.5")
 
