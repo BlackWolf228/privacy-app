@@ -432,7 +432,11 @@ def test_external_transfer_internal_when_address_matches(monkeypatch):
     )
 
     assert result.transfer_id == "T2"
-    assert calls == [("transfer_between_vault_accounts", "V1", "V2", "BTC_TEST", "1")]
+    assert calls == [
+        ("get_wallet_balance", "V1", "BTC_TEST"),
+        ("get_wallet_balance", "V2", "BTC_TEST"),
+        ("transfer_between_vault_accounts", "V1", "V2", "BTC_TEST", "1"),
+    ]
     assert len(session.transactions) == 2
     assert session.transactions[0].type == "internal_out"
     assert session.transactions[1].type == "internal_in"
@@ -466,7 +470,10 @@ def test_external_transfer_external_when_unknown_address(monkeypatch):
     )
 
     assert result.transfer_id == "T1"
-    assert calls == [("create_transfer", "V1", "BTC_TEST", "1", "UNKNOWN")]
+    assert calls == [
+        ("get_wallet_balance", "V1", "BTC_TEST"),
+        ("create_transfer", "V1", "BTC_TEST", "1", "UNKNOWN"),
+    ]
     assert len(session.transactions) == 1
     assert session.transactions[0].type == "crypto_out"
     assert session.transactions[0].address_to == "UNKNOWN"
@@ -515,7 +522,9 @@ def test_internal_transfer_between_users(monkeypatch):
 
     assert result.transfer_id == "T2"
     assert calls == [
-        ("transfer_between_vault_accounts", "V1", "V2", "BTC_TEST", "1")
+        ("get_wallet_balance", "V1", "BTC_TEST"),
+        ("get_wallet_balance", "V2", "BTC_TEST"),
+        ("transfer_between_vault_accounts", "V1", "V2", "BTC_TEST", "1"),
     ]
     assert len(session.transactions) == 2
     assert session.transactions[0].type == "internal_out"
@@ -562,7 +571,11 @@ def test_donation_transfers_to_configured_privacy_id(monkeypatch):
     result = asyncio.run(donate(wallet.id, payload, current_user=user, db=session))
 
     assert result.transfer_id == "T2"
-    assert calls == [("transfer_between_vault_accounts", "V1", "V2", "BTC_TEST", "1")]
+    assert calls == [
+        ("get_wallet_balance", "V1", "BTC_TEST"),
+        ("get_wallet_balance", "V2", "BTC_TEST"),
+        ("transfer_between_vault_accounts", "V1", "V2", "BTC_TEST", "1"),
+    ]
     assert len(session.transactions) == 2
     assert session.transactions[0].type == "internal_out"
     assert session.transactions[1].type == "internal_in"

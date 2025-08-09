@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from uuid import UUID, uuid4
+from decimal import Decimal
 
 from app.database import get_db
 from app.config import settings
@@ -217,10 +218,19 @@ async def internal_transfer(
         await db.commit()
         await db.refresh(dest_wallet)
 
+    # Retrieve current balances to calculate balance_after fields
+    sender_balance_data = await get_wallet_balance(wallet.vault_id, payload.asset)
+    dest_balance_data = await get_wallet_balance(dest_wallet.vault_id, payload.asset)
+
     transfer = await transfer_between_vault_accounts(
         wallet.vault_id, dest_wallet.vault_id, payload.asset, payload.amount
     )
+
     group_id = uuid4()
+    amount_dec = Decimal(payload.amount)
+    sender_balance = Decimal(sender_balance_data["balance"]) - amount_dec
+    dest_balance = Decimal(dest_balance_data["balance"]) + amount_dec
+
     tx_out = Transaction(
         user_id=current_user.id,
         wallet_id=wallet.id,
@@ -229,6 +239,10 @@ async def internal_transfer(
         status=TxStatus.pending,
         amount=payload.amount,
         currency=payload.asset,
+        fee_amount=Decimal("0"),
+        fee_currency=payload.asset,
+        balance_after=sender_balance,
+        address_from=wallet.address,
         address_to=dest_wallet.address,
         counterparty_user=dest_user.id,
         provider_ref_id=transfer.get("id"),
@@ -242,7 +256,11 @@ async def internal_transfer(
         status=TxStatus.pending,
         amount=payload.amount,
         currency=payload.asset,
+        fee_amount=Decimal("0"),
+        fee_currency=payload.asset,
+        balance_after=dest_balance,
         address_from=wallet.address,
+        address_to=dest_wallet.address,
         counterparty_user=current_user.id,
         provider_ref_id=transfer.get("id"),
         group_id=group_id,
@@ -324,10 +342,18 @@ async def donate(
         await db.commit()
         await db.refresh(dest_wallet)
 
+    sender_balance_data = await get_wallet_balance(wallet.vault_id, payload.asset)
+    dest_balance_data = await get_wallet_balance(dest_wallet.vault_id, payload.asset)
+
     transfer = await transfer_between_vault_accounts(
         wallet.vault_id, dest_wallet.vault_id, payload.asset, payload.amount
     )
+
     group_id = uuid4()
+    amount_dec = Decimal(payload.amount)
+    sender_balance = Decimal(sender_balance_data["balance"]) - amount_dec
+    dest_balance = Decimal(dest_balance_data["balance"]) + amount_dec
+
     tx_out = Transaction(
         user_id=current_user.id,
         wallet_id=wallet.id,
@@ -336,6 +362,10 @@ async def donate(
         status=TxStatus.pending,
         amount=payload.amount,
         currency=payload.asset,
+        fee_amount=Decimal("0"),
+        fee_currency=payload.asset,
+        balance_after=sender_balance,
+        address_from=wallet.address,
         address_to=dest_wallet.address,
         counterparty_user=dest_user.id,
         provider_ref_id=transfer.get("id"),
@@ -349,7 +379,11 @@ async def donate(
         status=TxStatus.pending,
         amount=payload.amount,
         currency=payload.asset,
+        fee_amount=Decimal("0"),
+        fee_currency=payload.asset,
+        balance_after=dest_balance,
         address_from=wallet.address,
+        address_to=dest_wallet.address,
         counterparty_user=current_user.id,
         provider_ref_id=transfer.get("id"),
         group_id=group_id,
@@ -396,10 +430,18 @@ async def external_transfer(
     dest_wallet = result.scalar_one_or_none()
 
     if dest_wallet:
+        sender_balance_data = await get_wallet_balance(wallet.vault_id, payload.asset)
+        dest_balance_data = await get_wallet_balance(dest_wallet.vault_id, payload.asset)
+
         transfer = await transfer_between_vault_accounts(
             wallet.vault_id, dest_wallet.vault_id, payload.asset, payload.amount
         )
+
         group_id = uuid4()
+        amount_dec = Decimal(payload.amount)
+        sender_balance = Decimal(sender_balance_data["balance"]) - amount_dec
+        dest_balance = Decimal(dest_balance_data["balance"]) + amount_dec
+
         tx_out = Transaction(
             user_id=current_user.id,
             wallet_id=wallet.id,
@@ -408,6 +450,10 @@ async def external_transfer(
             status=TxStatus.pending,
             amount=payload.amount,
             currency=payload.asset,
+            fee_amount=Decimal("0"),
+            fee_currency=payload.asset,
+            balance_after=sender_balance,
+            address_from=wallet.address,
             address_to=dest_wallet.address,
             counterparty_user=dest_wallet.user_id,
             provider_ref_id=transfer.get("id"),
@@ -421,7 +467,11 @@ async def external_transfer(
             status=TxStatus.pending,
             amount=payload.amount,
             currency=payload.asset,
+            fee_amount=Decimal("0"),
+            fee_currency=payload.asset,
+            balance_after=dest_balance,
             address_from=wallet.address,
+            address_to=dest_wallet.address,
             counterparty_user=current_user.id,
             provider_ref_id=transfer.get("id"),
             group_id=group_id,
@@ -430,9 +480,14 @@ async def external_transfer(
         await db.commit()
         await db.refresh(tx_out)
     else:
+        balance_data = await get_wallet_balance(wallet.vault_id, payload.asset)
         transfer = await create_transfer(
             wallet.vault_id, payload.asset, payload.amount, payload.address
         )
+        fee = Decimal(str(transfer.get("fee", "0")))
+        amount_dec = Decimal(payload.amount)
+        balance_after = Decimal(balance_data["balance"]) - amount_dec - fee
+
         tx = Transaction(
             user_id=current_user.id,
             wallet_id=wallet.id,
@@ -441,6 +496,10 @@ async def external_transfer(
             status=TxStatus.pending,
             amount=payload.amount,
             currency=payload.asset,
+            fee_amount=fee,
+            fee_currency=payload.asset,
+            balance_after=balance_after,
+            address_from=wallet.address,
             address_to=payload.address,
             provider_ref_id=transfer.get("id"),
         )
