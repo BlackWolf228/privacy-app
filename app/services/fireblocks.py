@@ -165,8 +165,7 @@ async def create_transfer(
                 # that structure now belongs under ``amountInfo``.  Preserve
                 # the richer structure for compatibility while sending the
                 # string value in ``amount``.
-                "amount": _amount,
-                "amountInfo": TransactionRequestAmount(_amount),
+                "amount": TransactionRequestAmount(_amount),
             }
             # The Fireblocks SDK expects keyword arguments for optional
             # parameters.  Passing the transaction request positionally causes
@@ -223,8 +222,7 @@ async def transfer_between_vault_accounts(
                 # ``TransactionRequestAmount`` structure is provided under
                 # ``amountInfo`` for backwards compatibility with Fireblocks
                 # SDK expectations.
-                "amount": _amount,
-                "amountInfo": TransactionRequestAmount(_amount),
+                "amount": TransactionRequestAmount(_amount),
             }
             idempotency_key = uuid.uuid4().hex
             # Similar to the external transfer above, the SDK validates
