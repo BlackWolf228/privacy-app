@@ -222,8 +222,8 @@ def test_estimate_transaction_fee(monkeypatch):
         def __init__(self):
             self.calls = []
 
-        def estimate_fee_for_asset(self, asset, amount):
-            self.calls.append((asset, amount))
+        def estimate_transaction_fee(self, *, transaction_request, idempotency_key):
+            self.calls.append((transaction_request, idempotency_key))
             return DummyFuture()
 
     class DummyClient:
@@ -241,5 +241,10 @@ def test_estimate_transaction_fee(monkeypatch):
 
     result = asyncio.run(fb.estimate_transaction_fee("BTC_TEST", "0.5"))
 
-    assert dummy_client.transactions.calls == [("BTC_TEST", "0.5")]
+    assert len(dummy_client.transactions.calls) == 1
+    request, key = dummy_client.transactions.calls[0]
+    assert request["assetId"] == "BTC_TEST"
+    assert isinstance(request["amount"], TransactionRequestAmount)
+    assert request["amount"].amount == "0.5"
+    assert isinstance(key, str) and len(key) == 32
     assert result == {"low": "0.1", "medium": "0.2", "high": "0.3"}
