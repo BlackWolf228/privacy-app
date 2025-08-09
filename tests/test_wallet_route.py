@@ -165,6 +165,8 @@ def setup_route(monkeypatch):
         "WithdrawalResponse",
         "InternalTransferRequest",
         "DonationRequest",
+        "FeeEstimateRequest",
+        "FeeEstimateResponse",
     ]:
         setattr(schemas_wallet_mod, name, _model_factory(name))
     monkeypatch.setitem(sys.modules, "app.schemas.wallet", schemas_wallet_mod)
@@ -203,6 +205,10 @@ def setup_route(monkeypatch):
         calls.append(("create_transfer", vault_id, asset, amount, address))
         return {"id": "T1", "status": "COMPLETED"}
 
+    async def estimate_transaction_fee(asset: str, amount: str):
+        calls.append(("estimate_transaction_fee", asset, amount))
+        return {"low": "0.1", "medium": "0.2", "high": "0.3"}
+
     async def transfer_between_vault_accounts(
         source_vault_id: str, dest_vault_id: str, asset: str, amount: str
     ):
@@ -222,6 +228,7 @@ def setup_route(monkeypatch):
     fireblocks_mod.generate_address_for_vault = generate_address_for_vault
     fireblocks_mod.get_wallet_balance = get_wallet_balance
     fireblocks_mod.create_transfer = create_transfer
+    fireblocks_mod.estimate_transaction_fee = estimate_transaction_fee
     fireblocks_mod.transfer_between_vault_accounts = transfer_between_vault_accounts
     fireblocks_mod.AssetAlreadyExistsError = AssetAlreadyExistsError
     monkeypatch.setitem(sys.modules, "app.services.fireblocks", fireblocks_mod)
@@ -617,4 +624,18 @@ def test_donation_asset_mismatch_raises(monkeypatch):
         assert False, "Expected HTTPException"
     except Exception as exc:
         assert getattr(exc, "status_code", None) == 400
+
+
+def test_estimate_fee_route(monkeypatch):
+    create_user_wallet, User, DummySession, calls = setup_route(monkeypatch)
+    from app.routes.wallet import estimate_fee
+    from app.schemas.wallet import FeeEstimateRequest
+
+    user = User(id="user-1", email_verified=True)
+    payload = FeeEstimateRequest(asset="BTC_TEST", amount="0.5")
+
+    result = asyncio.run(estimate_fee(payload, current_user=user))
+
+    assert result == {"low": "0.1", "medium": "0.2", "high": "0.3"}
+    assert calls[-1] == ("estimate_transaction_fee", "BTC_TEST", "0.5")
 

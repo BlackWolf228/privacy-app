@@ -203,3 +203,43 @@ def test_transfer_between_vault_accounts(monkeypatch):
     assert "amountInfo" not in request
     assert result["id"] == "T2"
     assert result["status"] == "COMPLETED"
+
+
+def test_estimate_transaction_fee(monkeypatch):
+    """Ensure ``estimate_transaction_fee`` requests fee data."""
+
+    class DummyFuture:
+        def result(self):
+            return SimpleNamespace(
+                data=SimpleNamespace(
+                    low=SimpleNamespace(networkFee="0.1"),
+                    medium=SimpleNamespace(networkFee="0.2"),
+                    high=SimpleNamespace(networkFee="0.3"),
+                )
+            )
+
+    class DummyTransactions:
+        def __init__(self):
+            self.calls = []
+
+        def estimate_fee_for_asset(self, asset, amount):
+            self.calls.append((asset, amount))
+            return DummyFuture()
+
+    class DummyClient:
+        def __init__(self):
+            self.transactions = DummyTransactions()
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            pass
+
+    dummy_client = DummyClient()
+    monkeypatch.setattr(fb, "get_fireblocks_client", lambda: dummy_client)
+
+    result = asyncio.run(fb.estimate_transaction_fee("BTC_TEST", "0.5"))
+
+    assert dummy_client.transactions.calls == [("BTC_TEST", "0.5")]
+    assert result == {"low": "0.1", "medium": "0.2", "high": "0.3"}
