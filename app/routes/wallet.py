@@ -168,7 +168,10 @@ async def estimate_fee(
         raise HTTPException(status_code=404, detail="Wallet not found")
 
     return await estimate_transaction_fee(
-        wallet.vault_id, wallet.currency, payload.amount
+        wallet.vault_id,
+        wallet.currency,
+        payload.amount,
+        payload.destination_address,
     )
 
 

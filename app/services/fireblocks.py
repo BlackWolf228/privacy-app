@@ -182,9 +182,9 @@ async def estimate_transaction_fee(
     vault_account_id: str,
     asset: str,
     _amount: str,
-    destination_address: str | None = None,
+    destination_address: str,
 ) -> dict:
-    """Estimate the network fee for sending ``_amount`` of ``asset``.
+    """Estimate the network fee for sending ``_amount`` of ``asset`` to ``destination_address``.
 
     Parameters
     ----------
@@ -194,8 +194,8 @@ async def estimate_transaction_fee(
         The asset identifier.
     _amount: str
         Amount to transfer as a string.
-    destination_address: str | None
-        Optional destination address. If provided, the request will include a
+    destination_address: str
+        Destination address for the transfer. The request will include a
         ONE_TIME_ADDRESS destination block.
     """
 
@@ -206,12 +206,11 @@ async def estimate_transaction_fee(
                 "amount": TransactionRequestAmount(_amount),
                 "operation": "TRANSFER",
                 "source": {"type": "VAULT_ACCOUNT", "id": vault_account_id},
-            }
-            if destination_address is not None:
-                tx_request["destination"] = {
+                "destination": {
                     "type": "ONE_TIME_ADDRESS",
                     "oneTimeAddress": {"address": destination_address},
-                }
+                },
+            }
             idempotency_key = uuid.uuid4().hex
             future = client.transactions.estimate_transaction_fee(
                 transaction_request=tx_request,
