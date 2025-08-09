@@ -1,13 +1,14 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from app.database import get_db
 from app.config import settings
 from app.models.user import User
 from app.models.wallet import Wallet
-from app.models.wallet_log import WalletLog
+from app.models.vault import Vault
+from app.models.transaction import Transaction, TxType, TxStatus
 
 from app.schemas.wallet import (
     WalletOut,
@@ -15,6 +16,7 @@ from app.schemas.wallet import (
     WithdrawalRequest,
     WithdrawalResponse,
     InternalTransferRequest,
+    DonationRequest,
 )
 from app.utils.auth import get_current_user
 from app.services.fireblocks import (
@@ -110,17 +112,6 @@ async def create_user_wallet(
     await db.commit()
     await db.refresh(wallet)
 
-    log = WalletLog(
-        vault_id=vault.vault_id,
-        network="FIREBLOCKS",
-        address=address,
-        balance=None,
-        status="created",
-        action="wallet.created",
-    )
-    db.add(log)
-    await db.commit()
-
     return wallet
 
 
@@ -143,17 +134,6 @@ async def wallet_balance(
 
     data = await get_wallet_balance(wallet.vault_id, wallet.currency)
 
-    log = WalletLog(
-        vault_id=wallet.vault_id,
-        network=wallet.network,
-        address=wallet.address,
-        balance=data.get("balance"),
-        status="balance",
-        action="wallet.balance.check",
-    )
-    db.add(log)
-    await db.commit()
-
     return WalletBalance(
         wallet_id=wallet.id,
         balance=data["balance"],
@@ -163,14 +143,16 @@ async def wallet_balance(
     )
 
 
-@router.post("/{wallet_id}/transfer", response_model=WithdrawalResponse)
-async def transfer_between_wallets(
+
+@router.post("/{wallet_id}/internal_transfer", response_model=WithdrawalResponse)
+async def internal_transfer(
     wallet_id: UUID,
     payload: InternalTransferRequest,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """Transfer funds to another user's wallet identified by privacy ID or username."""
+
     result = await db.execute(
         select(Wallet).where(
             Wallet.id == wallet_id,
@@ -210,7 +192,6 @@ async def transfer_between_wallets(
     dest_wallet = result.scalar_one_or_none()
 
     if dest_wallet is None:
-        # Ensure destination user has a vault
         result = await db.execute(select(Vault).where(Vault.user_id == dest_user.id))
         dest_vault = result.scalar_one_or_none()
         if dest_vault is None:
@@ -239,23 +220,42 @@ async def transfer_between_wallets(
     transfer = await transfer_between_vault_accounts(
         wallet.vault_id, dest_wallet.vault_id, payload.asset, payload.amount
     )
-
-    log = WalletLog(
-        vault_id=wallet.vault_id,
-        network=wallet.network,
-        address=dest_wallet.address,
-        balance=payload.amount,
-        status=transfer.get("status") or transfer.get("state"),
-        action="wallet.transfer.internal",
+    group_id = uuid4()
+    tx_out = Transaction(
+        user_id=current_user.id,
+        wallet_id=wallet.id,
+        provider="fireblocks",
+        type=TxType.internal_out,
+        status=TxStatus.pending,
+        amount=payload.amount,
+        currency=payload.asset,
+        address_to=dest_wallet.address,
+        counterparty_user=dest_user.id,
+        provider_ref_id=transfer.get("id"),
+        group_id=group_id,
     )
-    db.add(log)
+    tx_in = Transaction(
+        user_id=dest_user.id,
+        wallet_id=dest_wallet.id,
+        provider="fireblocks",
+        type=TxType.internal_in,
+        status=TxStatus.pending,
+        amount=payload.amount,
+        currency=payload.asset,
+        address_from=wallet.address,
+        counterparty_user=current_user.id,
+        provider_ref_id=transfer.get("id"),
+        group_id=group_id,
+    )
+
+    db.add_all([tx_out, tx_in])
     await db.commit()
+    await db.refresh(tx_out)
 
     return WithdrawalResponse(
         transfer_id=transfer.get("id", ""),
         status=transfer.get("status") or transfer.get("state", "pending"),
     )
-
 
 @router.post("/{wallet_id}/donate", response_model=WithdrawalResponse)
 async def donate(
@@ -327,17 +327,37 @@ async def donate(
     transfer = await transfer_between_vault_accounts(
         wallet.vault_id, dest_wallet.vault_id, payload.asset, payload.amount
     )
-
-    log = WalletLog(
-        vault_id=wallet.vault_id,
-        network=wallet.network,
-        address=dest_wallet.address,
-        balance=payload.amount,
-        status=transfer.get("status") or transfer.get("state"),
-        action="wallet.donation",
+    group_id = uuid4()
+    tx_out = Transaction(
+        user_id=current_user.id,
+        wallet_id=wallet.id,
+        provider="fireblocks",
+        type=TxType.internal_out,
+        status=TxStatus.pending,
+        amount=payload.amount,
+        currency=payload.asset,
+        address_to=dest_wallet.address,
+        counterparty_user=dest_user.id,
+        provider_ref_id=transfer.get("id"),
+        group_id=group_id,
     )
-    db.add(log)
+    tx_in = Transaction(
+        user_id=dest_user.id,
+        wallet_id=dest_wallet.id,
+        provider="fireblocks",
+        type=TxType.internal_in,
+        status=TxStatus.pending,
+        amount=payload.amount,
+        currency=payload.asset,
+        address_from=wallet.address,
+        counterparty_user=current_user.id,
+        provider_ref_id=transfer.get("id"),
+        group_id=group_id,
+    )
+
+    db.add_all([tx_out, tx_in])
     await db.commit()
+    await db.refresh(tx_out)
 
     return WithdrawalResponse(
         transfer_id=transfer.get("id", ""),
@@ -345,14 +365,14 @@ async def donate(
     )
 
 
-@router.post("/{wallet_id}/withdraw", response_model=WithdrawalResponse)
-async def withdraw_from_wallet(
+@router.post("/{wallet_id}/external_transfer", response_model=WithdrawalResponse)
+async def external_transfer(
     wallet_id: UUID,
     payload: WithdrawalRequest,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Withdraw funds from a specific wallet using its internal ID."""
+    """Transfer funds from a wallet to an external address or another user."""
     result = await db.execute(
         select(Wallet).where(
             Wallet.id == wallet_id,
@@ -379,36 +399,54 @@ async def withdraw_from_wallet(
         transfer = await transfer_between_vault_accounts(
             wallet.vault_id, dest_wallet.vault_id, payload.asset, payload.amount
         )
-        dest_address = dest_wallet.address
-        action = "wallet.withdraw.internal"
+        group_id = uuid4()
+        tx_out = Transaction(
+            user_id=current_user.id,
+            wallet_id=wallet.id,
+            provider="fireblocks",
+            type=TxType.internal_out,
+            status=TxStatus.pending,
+            amount=payload.amount,
+            currency=payload.asset,
+            address_to=dest_wallet.address,
+            counterparty_user=dest_wallet.user_id,
+            provider_ref_id=transfer.get("id"),
+            group_id=group_id,
+        )
+        tx_in = Transaction(
+            user_id=dest_wallet.user_id,
+            wallet_id=dest_wallet.id,
+            provider="fireblocks",
+            type=TxType.internal_in,
+            status=TxStatus.pending,
+            amount=payload.amount,
+            currency=payload.asset,
+            address_from=wallet.address,
+            counterparty_user=current_user.id,
+            provider_ref_id=transfer.get("id"),
+            group_id=group_id,
+        )
+        db.add_all([tx_out, tx_in])
+        await db.commit()
+        await db.refresh(tx_out)
     else:
         transfer = await create_transfer(
             wallet.vault_id, payload.asset, payload.amount, payload.address
         )
-        dest_address = payload.address
-        action = "wallet.withdraw"
-
-    tx = Transaction(
-        user_id=current_user.id,
-        provider="fireblocks",
-        type=TxType.crypto_out,
-        status=TxStatus.pending,
-        amount=payload.amount,
-        currency=payload.asset,
-        address_to=payload.address,
-        provider_ref_id=transfer.get("id"),
-    )
-    log = WalletLog(
-        vault_id=wallet.vault_id,
-        network=wallet.network,
-        address=dest_address,
-        balance=payload.amount,
-        status=transfer.get("status") or transfer.get("state"),
-        action=action,
-    )
-    db.add_all([tx, log])
-    await db.commit()
-    await db.refresh(tx)
+        tx = Transaction(
+            user_id=current_user.id,
+            wallet_id=wallet.id,
+            provider="fireblocks",
+            type=TxType.crypto_out,
+            status=TxStatus.pending,
+            amount=payload.amount,
+            currency=payload.asset,
+            address_to=payload.address,
+            provider_ref_id=transfer.get("id"),
+        )
+        db.add(tx)
+        await db.commit()
+        await db.refresh(tx)
 
     return WithdrawalResponse(
         transfer_id=transfer.get("id", ""),
@@ -416,52 +454,3 @@ async def withdraw_from_wallet(
     )
 
 
-@router.post("/transfer/internal", response_model=InternalTransferResponse)
-async def internal_transfer(
-    payload: InternalTransferRequest,
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    if current_user.id == payload.receiver_id:
-        raise HTTPException(status_code=400, detail="Cannot transfer to yourself")
-
-    result = await db.execute(select(User).where(User.id == payload.receiver_id))
-    receiver = result.scalar_one_or_none()
-    if receiver is None:
-        raise HTTPException(status_code=404, detail="Receiver not found")
-
-    group_id = uuid.uuid4()
-
-    sender_tx = Transaction(
-        user_id=current_user.id,
-        provider="system",
-        type=TxType.internal_out,
-        status=TxStatus.confirmed,
-        amount=payload.amount,
-        currency=payload.currency,
-        description=payload.description,
-        group_id=group_id,
-        counterparty_user=payload.receiver_id,
-    )
-    receiver_tx = Transaction(
-        user_id=payload.receiver_id,
-        provider="system",
-        type=TxType.internal_in,
-        status=TxStatus.confirmed,
-        amount=payload.amount,
-        currency=payload.currency,
-        description=payload.description,
-        group_id=group_id,
-        counterparty_user=current_user.id,
-    )
-
-    db.add_all([sender_tx, receiver_tx])
-    await db.commit()
-    await db.refresh(sender_tx)
-    await db.refresh(receiver_tx)
-
-    return InternalTransferResponse(
-        group_id=group_id,
-        sender_transaction_id=sender_tx.id,
-        receiver_transaction_id=receiver_tx.id,
-    )
