@@ -39,3 +39,14 @@ class DonationRequest(BaseModel):
 class WithdrawalResponse(BaseModel):
     transfer_id: str
     status: str
+
+
+class FeeEstimateRequest(BaseModel):
+    asset: str
+    amount: str
+
+
+class FeeEstimateResponse(BaseModel):
+    low: str | None = None
+    medium: str | None = None
+    high: str | None = None

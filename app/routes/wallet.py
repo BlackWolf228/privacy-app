@@ -18,6 +18,8 @@ from app.schemas.wallet import (
     WithdrawalResponse,
     InternalTransferRequest,
     DonationRequest,
+    FeeEstimateRequest,
+    FeeEstimateResponse,
 )
 from app.utils.auth import get_current_user
 from app.services.fireblocks import (
@@ -27,6 +29,7 @@ from app.services.fireblocks import (
     get_wallet_balance,
     create_transfer,
     transfer_between_vault_accounts,
+    estimate_transaction_fee,
     AssetAlreadyExistsError,
 )
 
@@ -142,6 +145,18 @@ async def wallet_balance(
         pending_balance=data.get("pending_balance"),
         available_balance=data.get("available_balance"),
     )
+
+
+@router.post("/estimate_fee", response_model=FeeEstimateResponse)
+async def estimate_fee(
+    payload: FeeEstimateRequest,
+    current_user: User = Depends(get_current_user),
+):
+    """Return network fee estimates for an external transfer."""
+    if not current_user.email_verified:
+        raise HTTPException(status_code=400, detail="Email not verified")
+
+    return await estimate_transaction_fee(payload.asset, payload.amount)
 
 
 

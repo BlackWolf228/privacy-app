@@ -175,6 +175,38 @@ async def get_wallet_balance(vault_account_id: str, asset: str):
 
 
 # -------------------
+# Fee estimation
+# -------------------
+
+async def estimate_transaction_fee(asset: str, _amount: str) -> dict:
+    """Estimate the network fee for sending ``_amount`` of ``asset``."""
+
+    def sync_call() -> dict:
+        with get_fireblocks_client() as client:
+            future = client.transactions.estimate_fee_for_asset(asset, _amount)
+            response = future.result()
+            data = getattr(response, "data", response)
+
+            def extract(level: str) -> str | None:
+                obj = getattr(data, level, None)
+                if obj is None:
+                    return None
+                raw_fee = (
+                    getattr(obj, "network_fee", None)
+                    or getattr(obj, "networkFee", None)
+                )
+                return _as_decimal_str(raw_fee, "0")
+
+            return {
+                "low": extract("low"),
+                "medium": extract("medium"),
+                "high": extract("high"),
+            }
+
+    return await asyncio.to_thread(sync_call)
+
+
+# -------------------
 # Transfers
 # -------------------
 
