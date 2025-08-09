@@ -114,7 +114,9 @@ def test_create_transfer_creates_transaction(monkeypatch):
 
     class DummyFuture:
         def result(self):
-            return SimpleNamespace(data=SimpleNamespace(id="T1", status="COMPLETED"))
+            return SimpleNamespace(
+                data=SimpleNamespace(id="T1", status="COMPLETED", fee="0.0001")
+            )
 
     class DummyTransactions:
         def __init__(self):
@@ -149,13 +151,13 @@ def test_create_transfer_creates_transaction(monkeypatch):
         "type": "ONE_TIME_ADDRESS",
         "oneTimeAddress": {"address": "ADDR"},
     }
-    # The request should now contain a plain string amount and a structured
-    # ``amountInfo`` object for backwards compatibility.
-    assert request["amount"] == "0.1"
-    assert isinstance(request["amountInfo"], TransactionRequestAmount)
-    assert request["amountInfo"].amount == "0.1"
+    # The request should now contain a structured ``amount`` object only.
+    assert isinstance(request["amount"], TransactionRequestAmount)
+    assert request["amount"].amount == "0.1"
+    assert "amountInfo" not in request
     assert result["id"] == "T1"
     assert result["status"] == "COMPLETED"
+    assert result["fee"] == "0.0001"
 
 
 def test_transfer_between_vault_accounts(monkeypatch):
@@ -196,8 +198,8 @@ def test_transfer_between_vault_accounts(monkeypatch):
     assert request["assetId"] == "BTC_TEST"
     assert request["source"] == {"type": "VAULT_ACCOUNT", "id": "V1"}
     assert request["destination"] == {"type": "VAULT_ACCOUNT", "id": "V2"}
-    assert request["amount"] == "0.1"
-    assert isinstance(request["amountInfo"], TransactionRequestAmount)
-    assert request["amountInfo"].amount == "0.1"
+    assert isinstance(request["amount"], TransactionRequestAmount)
+    assert request["amount"].amount == "0.1"
+    assert "amountInfo" not in request
     assert result["id"] == "T2"
     assert result["status"] == "COMPLETED"

@@ -160,12 +160,10 @@ async def create_transfer(
                     "type": "ONE_TIME_ADDRESS",
                     "oneTimeAddress": {"address": destination_address},
                 },
-                # Fireblocks expects ``amount`` as a plain string.  Older
-                # versions accepted a ``TransactionRequestAmount`` object, but
-                # that structure now belongs under ``amountInfo``.  Preserve
-                # the richer structure for compatibility while sending the
-                # string value in ``amount``.
-                "amount": TransactionRequestAmount(_amount),
+                # Fireblocks expects the amount as a structured
+                # ``TransactionRequestAmount`` object rather than a raw
+                # string value.
+                "amount": TransactionRequestAmount(amount=_amount),
             }
             # The Fireblocks SDK expects keyword arguments for optional
             # parameters.  Passing the transaction request positionally causes
@@ -177,10 +175,13 @@ async def create_transfer(
             )
             response = future.result()
             data = getattr(response, "data", response)
+            fee_info = getattr(data, "fee_info", None) or getattr(data, "feeInfo", None)
+            fee = getattr(fee_info, "fee", None) if fee_info else getattr(data, "fee", None)
             return {
                 "id": getattr(data, "id", None),
                 "status": getattr(data, "status", None),
                 "state": getattr(data, "state", None),
+                "fee": fee,
             }
 
     return await asyncio.to_thread(sync_call)
@@ -218,11 +219,9 @@ async def transfer_between_vault_accounts(
                     "type": "VAULT_ACCOUNT",
                     "id": destination_vault_id,
                 },
-                # As above, ``amount`` should be a string and the detailed
-                # ``TransactionRequestAmount`` structure is provided under
-                # ``amountInfo`` for backwards compatibility with Fireblocks
-                # SDK expectations.
-                "amount": TransactionRequestAmount(_amount),
+                # The amount is provided as a ``TransactionRequestAmount``
+                # instance rather than a plain string.
+                "amount": TransactionRequestAmount(amount=_amount),
             }
             idempotency_key = uuid.uuid4().hex
             # Similar to the external transfer above, the SDK validates
