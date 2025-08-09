@@ -1,0 +1,4 @@
+cachetools>=5.3
+eth-utils>=2.3
+fastapi>=0.110
+pytest>=7.4
