@@ -13,7 +13,7 @@ from sqlalchemy.dialects import postgresql
 
 # revision identifiers, used by Alembic.
 revision: str = '13d9e5c7f4b2'
-down_revision: Union[str, Sequence[str], None] = '0700c6c27ae3'
+down_revision: Union[str, Sequence[str], None] = "2190614fb7ba"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
@@ -22,13 +22,15 @@ def upgrade() -> None:
     """Upgrade schema."""
     tx_type_enum = postgresql.ENUM(
         'crypto_in', 'crypto_out', 'internal_in', 'internal_out', 'fiat_in', 'fiat_out', 'swap',
-        name='tx_type'
+        name='tx_type',
+        create_type=False
     )
     tx_type_enum.create(op.get_bind(), checkfirst=True)
 
     tx_status_enum = postgresql.ENUM(
         'pending', 'confirmed', 'failed', 'canceled',
-        name='tx_status'
+        name='tx_status',
+        create_type=False
     )
     tx_status_enum.create(op.get_bind(), checkfirst=True)
 
@@ -39,7 +41,7 @@ def upgrade() -> None:
         sa.Column('wallet_id', sa.UUID(), nullable=True),
         sa.Column('provider', sa.String(), nullable=False),
         sa.Column('type', tx_type_enum, nullable=False),
-        sa.Column('status', tx_status_enum, nullable=False, server_default='pending'),
+        sa.Column('status', tx_status_enum, nullable=False, server_default=sa.text("'pending'::tx_status")),
         sa.Column('amount', sa.Numeric(38, 18), nullable=False),
         sa.Column('currency', sa.String(), nullable=False),
         sa.Column('description', sa.String(), nullable=True),
