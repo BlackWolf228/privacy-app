@@ -45,6 +45,7 @@ class FeeEstimateRequest(BaseModel):
     wallet_id: UUID
     asset: str
     amount: str
+    destination_address: str
 
 
 class FeeEstimateResponse(BaseModel):
