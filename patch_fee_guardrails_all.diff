@@ -1,0 +1,437 @@
+diff --git a/requirements.txt b/requirements.txt
+index e69de29..b4a3fcb 100644
+--- a/requirements.txt
++++ b/requirements.txt
+@@ -0,0 +1,4 @@
++cachetools>=5.3
++eth-utils>=2.3
++fastapi>=0.110
++pytest>=7.4
+diff --git a/app/core/__init__.py b/app/core/__init__.py
+new file mode 100644
+index 0000000..e69de29
+--- /dev/null
++++ b/app/core/__init__.py
+@@ -0,0 +1 @@
++# core package
+diff --git a/app/core/assets.py b/app/core/assets.py
+new file mode 100644
+index 0000000..0f8a3c1
+--- /dev/null
++++ b/app/core/assets.py
+@@ -0,0 +1,118 @@
++from dataclasses import dataclass
++from typing import Callable, Optional
++import re
++
++try:
++    from eth_utils import is_checksum_address as eth_is_checksum
++except Exception:
++    eth_is_checksum = None
++
++@dataclass(frozen=True)
++class AssetMeta:
++    symbol: str
++    network: str
++    decimals: int
++    native: bool
++    address_validator: Optional[Callable[[str], bool]] = None
++
++_re_btc_main = re.compile(r"^(bc1[qpzry9x8gf2tvdw0s3jn54khce6mua7l]{14,64}|[13][a-km-zA-HJ-NP-Z1-9]{25,34})$")
++_re_btc_test = re.compile(r"^(tb1[qpzry9x8gf2tvdw0s3jn54khce6mua7l]{14,64}|[mn2][a-km-zA-HJ-NP-Z1-9]{25,34})$")
++_re_eth = re.compile(r"^0x[a-fA-F0-9]{40}$")
++_re_tron = re.compile(r"^T[1-9A-HJ-NP-Za-km-z]{33}$")
++
++def is_btc_main(addr: str) -> bool:
++    return bool(_re_btc_main.match(addr or ""))
++
++def is_btc_test(addr: str) -> bool:
++    return bool(_re_btc_test.match(addr or ""))
++
++def is_eth(addr: str) -> bool:
++    if not _re_eth.match(addr or ""):
++        return False
++    if eth_is_checksum:
++        if addr == addr.lower() or addr == addr.upper() or eth_is_checksum(addr):
++            return True
++        return False
++    return True
++
++def is_tron(addr: str) -> bool:
++    return bool(_re_tron.match(addr or ""))
++
++ASSETS: dict[str, AssetMeta] = {
++    "BTC":       AssetMeta("BTC",       "BTC",   8,  True,  is_btc_main),
++    "BTC_TEST":  AssetMeta("BTC_TEST",  "BTC",   8,  True,  is_btc_test),
++    "ETH":       AssetMeta("ETH",       "ETH",  18,  True,  is_eth),
++    "ETH_TEST":  AssetMeta("ETH_TEST",  "ETH",  18,  True,  is_eth),
++    "TRX":       AssetMeta("TRX",       "TRON",  6,  True,  is_tron),
++    "USDT_ERC20":AssetMeta("USDT",      "ETH",   6,  False, is_eth),
++    "USDT_TRC20":AssetMeta("USDT",      "TRON",  6,  False, is_tron),
++}
++
++def get_asset(symbol: str) -> AssetMeta:
++    meta = ASSETS.get(symbol)
++    if not meta:
++        raise ValueError(f"Unsupported asset: {symbol}")
++    return meta
++
++def validate_destination(asset_symbol: str, address: str) -> bool:
++    meta = get_asset(asset_symbol)
++    if not address or not meta.address_validator:
++        return False
++    return meta.address_validator(address.strip())
++
++def human_amount_from_base(amount_base_units: int | float, decimals: int) -> float:
++    return float(amount_base_units) / (10 ** decimals)
++
++def base_amount_from_human(amount_human: float, decimals: int) -> int:
++    return int(round(float(amount_human) * (10 ** decimals)))
+diff --git a/app/core/limits.py b/app/core/limits.py
+new file mode 100644
+index 0000000..b3a67a5
+--- /dev/null
++++ b/app/core/limits.py
+@@ -0,0 +1,39 @@
++import time
++from typing import Hashable, Tuple
++from cachetools import TTLCache
++
++fee_cache = TTLCache(maxsize=2048, ttl=60)
++
++class SimpleRateLimiter:
++    def __init__(self, limit: int, window_seconds: int):
++        self.limit = limit
++        self.window = window_seconds
++        self.bucket: dict[Hashable, list[float]] = {}
++
++    def allow(self, key: Hashable) -> bool:
++        now = time.time()
++        q = self.bucket.get(key, [])
++        q = [t for t in q if now - t < self.window]
++        if len(q) >= self.limit:
++            self.bucket[key] = q
++            return False
++        q.append(now)
++        self.bucket[key] = q
++        return True
++
++rate_limit_fee = SimpleRateLimiter(limit=10, window_seconds=60)
++
++def fee_cache_key(asset: str, amount_human: float, dest_addr: str) -> Tuple[str, float, str]:
++    amt = round(float(amount_human), 8)
++    masked = f"{(dest_addr or '')[:4]}...{(dest_addr or '')[-4:]}" if dest_addr else ""
++    return (asset, amt, masked)
+diff --git a/app/core/responses.py b/app/core/responses.py
+new file mode 100644
+index 0000000..0a8a2b9
+--- /dev/null
++++ b/app/core/responses.py
+@@ -0,0 +1,20 @@
++from typing import Any
++from fastapi import Response, HTTPException
++from fastapi.encoders import jsonable_encoder
++
++def ok(data: Any, status: str = "ok"):
++    return {"status": status, "data": data, "error": None}
++
++def err(message: str, code: str = "bad_request", http_status: int = 400):
++    raise HTTPException(
++        status_code=http_status,
++        detail={"status": "error", "data": None, "error": {"code": code, "message": message}},
++    )
++
++def to_json(resp: Any, http_status: int = 200) -> Response:
++    return Response(
++        content=jsonable_encoder(resp),
++        media_type="application/json",
++        status_code=http_status,
++    )
+diff --git a/app/schemas/__init__.py b/app/schemas/__init__.py
+new file mode 100644
+index 0000000..e69de29
+--- /dev/null
++++ b/app/schemas/__init__.py
+@@ -0,0 +1 @@
++# schemas package
+diff --git a/app/schemas/fees.py b/app/schemas/fees.py
+new file mode 100644
+index 0000000..0f2a5a3
+--- /dev/null
++++ b/app/schemas/fees.py
+@@ -0,0 +1,33 @@
++from pydantic import BaseModel, Field, validator
++from app.core.assets import get_asset, validate_destination
++
++class FeeEstimateRequest(BaseModel):
++    asset: str = Field(..., description="e.g., BTC_TEST, ETH, USDT_ERC20")
++    amount: float = Field(..., gt=0, description="Human-readable amount, e.g., 0.01")
++    destination_address: str = Field(...)
++
++    @validator("asset")
++    def _asset_supported(cls, v):
++        get_asset(v)
++        return v
++
++    @validator("destination_address")
++    def _addr_ok(cls, v, values):
++        asset = values.get("asset")
++        if asset and not validate_destination(asset, v):
++            raise ValueError("Invalid destination address for selected asset/network")
++        return v
++
++class FeeQuote(BaseModel):
++    units: str
++    low: float
++    medium: float
++    high: float
++    eta_seconds: int
+diff --git a/app/services/__init__.py b/app/services/__init__.py
+new file mode 100644
+index 0000000..e69de29
+--- /dev/null
++++ b/app/services/__init__.py
+@@ -0,0 +1 @@
++# services package
+diff --git a/app/services/fees.py b/app/services/fees.py
+new file mode 100644
+index 0000000..7f76d88
+--- /dev/null
++++ b/app/services/fees.py
+@@ -0,0 +1,54 @@
++from typing import Tuple
++from app.core.assets import get_asset, human_amount_from_base
++from app.core.limits import fee_cache, fee_cache_key
++from app.schemas.fees import FeeEstimateRequest, FeeQuote
++
++class FireblocksError(Exception):
++    def __init__(self, code: str, message: str):
++        super().__init__(message)
++        self.code = code
++        self.message = message
++
++def _call_fireblocks_estimate(req: FeeEstimateRequest) -> Tuple[int,int,int,int]:
++    """
++    TODO: Înlocuiește această funcție cu apelul real la Fireblocks:
++      - build request cu operation="TRANSFER"
++      - include mereu 'destination' ONE_TIME_ADDRESS + destination_address
++      - extrage low/medium/high + ETA în base units
++    Returnează valori în base units + ETA în secunde.
++    """
++    base_low = 1000
++    base_med = 2000
++    base_high = 3000
++    eta = 60
++    return base_low, base_med, base_high, eta
++
++def estimate_fee(req: FeeEstimateRequest) -> FeeQuote:
++    meta = get_asset(req.asset)
++    ck = fee_cache_key(req.asset, req.amount, req.destination_address)
++
++    if ck in fee_cache:
++        return fee_cache[ck]
++
++    try:
++        base_low, base_med, base_high, eta = _call_fireblocks_estimate(req)
++    except FireblocksError as e:
++        raise
++
++    quote = FeeQuote(
++        units=meta.symbol,
++        low=human_amount_from_base(base_low, meta.decimals),
++        medium=human_amount_from_base(base_med, meta.decimals),
++        high=human_amount_from_base(base_high, meta.decimals),
++        eta_seconds=eta,
++    )
++    fee_cache[ck] = quote
++    return quote
+diff --git a/app/api/__init__.py b/app/api/__init__.py
+new file mode 100644
+index 0000000..e69de29
+--- /dev/null
++++ b/app/api/__init__.py
+@@ -0,0 +1 @@
++# api package
+diff --git a/app/api/routes/__init__.py b/app/api/routes/__init__.py
+new file mode 100644
+index 0000000..e69de29
+--- /dev/null
++++ b/app/api/routes/__init__.py
+@@ -0,0 +1 @@
++# routes package
+diff --git a/app/api/routes/fees.py b/app/api/routes/fees.py
+new file mode 100644
+index 0000000..0a2f36d
+--- /dev/null
++++ b/app/api/routes/fees.py
+@@ -0,0 +1,45 @@
++from fastapi import APIRouter, Depends, Request
++from app.core.responses import ok, err
++from app.core.limits import rate_limit_fee
++from app.schemas.fees import FeeEstimateRequest
++from app.services.fees import estimate_fee, FireblocksError
++
++try:
++    from app.core.auth import get_current_user  # dacă ai deja auth
++except Exception:
++    def get_current_user():
++        return None
++
++router = APIRouter(prefix="/fees", tags=["fees"])
++
++@router.post("/estimate")
++def estimate_transaction_fee(
++    payload: FeeEstimateRequest,
++    request: Request,
++    user = Depends(get_current_user)
++):
++    key = getattr(user, "id", None) or request.client.host or "anon"
++    if not rate_limit_fee.allow(key):
++        return err("Too many requests. Please slow down.", code="rate_limited", http_status=429)
++
++    try:
++        quote = estimate_fee(payload)
++        return ok(quote.dict())
++    except FireblocksError as e:
++        code = (e.code or "").lower()
++        if code in ("insufficient_funds","balance_too_low"):
++            return err("Insufficient balance for fee.", code="insufficient_funds", http_status=402)
++        if code in ("asset_not_supported","invalid_destination"):
++            return err("Invalid request for asset/destination.", code="invalid_request", http_status=400)
++        if code in ("rate_limited","too_many_requests"):
++            return err("Upstream rate limited.", code="upstream_rate_limited", http_status=429)
++        return err("Upstream provider error.", code="upstream_error", http_status=502)
++    except ValueError as ve:
++        return err(str(ve), code="bad_request", http_status=400)
++    except Exception:
++        return err("Unexpected error.", code="internal_error", http_status=500)
+diff --git a/app/api/routes/auth.py b/app/api/routes/auth.py
+new file mode 100644
+index 0000000..f9f4277
+--- /dev/null
++++ b/app/api/routes/auth.py
+@@ -0,0 +1,39 @@
++from fastapi import APIRouter
++from app.core.responses import ok, err
++
++router = APIRouter(prefix="/auth", tags=["auth"])
++
++@router.post("/login")
++def login():
++    # TODO: conectează cu fluxul tău existent (JWT + 2FA email)
++    return err("Not implemented yet", code="not_implemented", http_status=501)
++
++@router.post("/request-code")
++def request_code():
++    # TODO: integrează Resend + salvare cod în DB
++    return err("Not implemented yet", code="not_implemented", http_status=501)
++
++@router.post("/verify-code")
++def verify_code():
++    # TODO: validează codul 2FA, setează sesiunea
++    return err("Not implemented yet", code="not_implemented", http_status=501)
+diff --git a/app/api/routes/wallets.py b/app/api/routes/wallets.py
+new file mode 100644
+index 0000000..a8d3b1d
+--- /dev/null
++++ b/app/api/routes/wallets.py
+@@ -0,0 +1,53 @@
++from fastapi import APIRouter, Depends
++from app.core.responses import ok, err
++
++try:
++    from app.core.auth import get_current_user
++except Exception:
++    def get_current_user():
++        return None
++
++router = APIRouter(prefix="/wallets", tags=["wallets"])
++
++@router.post("/create")
++def create_wallet(user = Depends(get_current_user)):
++    # TODO: Fireblocks create vault / wallet per asset
++    return err("Not implemented yet", code="not_implemented", http_status=501)
++
++@router.get("/{wallet_id}/balance")
++def get_balance(wallet_id: str, user = Depends(get_current_user)):
++    # TODO: returnează soldul din Fireblocks
++    return err("Not implemented yet", code="not_implemented", http_status=501)
++
++@router.post("/{wallet_id}/internal_transfer")
++def internal_transfer(wallet_id: str, user = Depends(get_current_user)):
++    # TODO: transfer între vault-uri interne
++    return err("Not implemented yet", code="not_implemented", http_status=501)
++
++@router.post("/{wallet_id}/external_transfer")
++def external_transfer(wallet_id: str, user = Depends(get_current_user)):
++    # TODO: transfer către adresă externă (cu whitelist, limits, 2FA recentă)
++    return err("Not implemented yet", code="not_implemented", http_status=501)
+diff --git a/app/main.py b/app/main.py
+new file mode 100644
+index 0000000..b6a9d0a
+--- /dev/null
++++ b/app/main.py
+@@ -0,0 +1,21 @@
++from fastapi import FastAPI
++from fastapi.middleware.cors import CORSMiddleware
++
++app = FastAPI(title="Privacy API", version="0.1.0")
++
++app.add_middleware(
++    CORSMiddleware,
++    allow_origins=["*"],
++    allow_credentials=True,
++    allow_methods=["*"],
++    allow_headers=["*"],
++)
++
++from app.api.routes import fees as fees_router
++from app.api.routes import auth as auth_router
++from app.api.routes import wallets as wallets_router
++
++app.include_router(fees_router.router)
++app.include_router(auth_router.router)
++app.include_router(wallets_router.router)
++
+diff --git a/tests/test_fees.py b/tests/test_fees.py
+new file mode 100644
+index 0000000..c2f5b1a
+--- /dev/null
++++ b/tests/test_fees.py
+@@ -0,0 +1,36 @@
++from fastapi.testclient import TestClient
++from app.main import app
++
++client = TestClient(app)
++
++def test_fee_ok():
++    payload = {
++        "asset": "BTC_TEST",
++        "amount": 0.001,
++        "destination_address": "tb1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqs3h5np"
++    }
++    r = client.post("/fees/estimate", json=payload)
++    assert r.status_code == 200
++    body = r.json()
++    assert body["status"] == "ok"
++    for k in ("low","medium","high","eta_seconds","units"):
++        assert k in body["data"]
++
++def test_fee_invalid_address():
++    payload = {"asset":"ETH","amount":1.0,"destination_address":"not_an_address"}
++    r = client.post("/fees/estimate", json=payload)
++    assert r.status_code == 400
++    body = r.json()
++    assert body["detail"]["error"]["code"] == "bad_request"
++
++def test_rate_limit():
++    payload = {
++        "asset": "BTC_TEST",
++        "amount": 0.001,
++        "destination_address": "tb1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqs3h5np"
++    }
++    last = None
++    for _ in range(11):
++        last = client.post("/fees/estimate", json=payload)
++    assert last.status_code in (200,429)
++
