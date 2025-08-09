@@ -42,7 +42,7 @@ class WithdrawalResponse(BaseModel):
 
 
 class FeeEstimateRequest(BaseModel):
-    vault_id: str
+    wallet_id: UUID
     asset: str
     amount: str
 

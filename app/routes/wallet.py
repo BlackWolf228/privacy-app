@@ -151,13 +151,24 @@ async def wallet_balance(
 async def estimate_fee(
     payload: FeeEstimateRequest,
     current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
 ):
     """Return network fee estimates for an external transfer."""
     if not current_user.email_verified:
         raise HTTPException(status_code=400, detail="Email not verified")
 
+    result = await db.execute(
+        select(Wallet).where(
+            Wallet.id == payload.wallet_id,
+            Wallet.user_id == current_user.id,
+        )
+    )
+    wallet = result.scalar_one_or_none()
+    if wallet is None:
+        raise HTTPException(status_code=404, detail="Wallet not found")
+
     return await estimate_transaction_fee(
-        payload.vault_id, payload.asset, payload.amount
+        wallet.vault_id, wallet.currency, payload.amount
     )
 
 
