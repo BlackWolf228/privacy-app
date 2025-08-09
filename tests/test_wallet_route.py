@@ -205,8 +205,8 @@ def setup_route(monkeypatch):
         calls.append(("create_transfer", vault_id, asset, amount, address))
         return {"id": "T1", "status": "COMPLETED"}
 
-    async def estimate_transaction_fee(asset: str, amount: str):
-        calls.append(("estimate_transaction_fee", asset, amount))
+    async def estimate_transaction_fee(asset: str, _amount: str):
+        calls.append(("estimate_transaction_fee", asset, _amount))
         return {"low": "0.1", "medium": "0.2", "high": "0.3"}
 
     async def transfer_between_vault_accounts(

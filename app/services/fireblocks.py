@@ -183,7 +183,15 @@ async def estimate_transaction_fee(asset: str, _amount: str) -> dict:
 
     def sync_call() -> dict:
         with get_fireblocks_client() as client:
-            future = client.transactions.estimate_fee_for_asset(asset, _amount)
+            tx_request = {
+                "assetId": asset,
+                "amount": TransactionRequestAmount(_amount),
+            }
+            idempotency_key = uuid.uuid4().hex
+            future = client.transactions.estimate_transaction_fee(
+                transaction_request=tx_request,
+                idempotency_key=idempotency_key,
+            )
             response = future.result()
             data = getattr(response, "data", response)
 
