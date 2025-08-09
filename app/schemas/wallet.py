@@ -42,6 +42,7 @@ class WithdrawalResponse(BaseModel):
 
 
 class FeeEstimateRequest(BaseModel):
+    vault_id: str
     asset: str
     amount: str
 

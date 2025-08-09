@@ -239,11 +239,19 @@ def test_estimate_transaction_fee(monkeypatch):
     dummy_client = DummyClient()
     monkeypatch.setattr(fb, "get_fireblocks_client", lambda: dummy_client)
 
-    result = asyncio.run(fb.estimate_transaction_fee("BTC_TEST", "0.5"))
+    result = asyncio.run(
+        fb.estimate_transaction_fee("V1", "BTC_TEST", "0.5", "ADDR")
+    )
 
     assert len(dummy_client.transactions.calls) == 1
     request, key = dummy_client.transactions.calls[0]
     assert request["assetId"] == "BTC_TEST"
+    assert request["operation"] == "TRANSFER"
+    assert request["source"] == {"type": "VAULT_ACCOUNT", "id": "V1"}
+    assert request["destination"] == {
+        "type": "ONE_TIME_ADDRESS",
+        "oneTimeAddress": {"address": "ADDR"},
+    }
     assert isinstance(request["amount"], TransactionRequestAmount)
     assert request["amount"].amount == "0.5"
     assert isinstance(key, str) and len(key) == 32

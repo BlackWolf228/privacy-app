@@ -178,15 +178,40 @@ async def get_wallet_balance(vault_account_id: str, asset: str):
 # Fee estimation
 # -------------------
 
-async def estimate_transaction_fee(asset: str, _amount: str) -> dict:
-    """Estimate the network fee for sending ``_amount`` of ``asset``."""
+async def estimate_transaction_fee(
+    vault_account_id: str,
+    asset: str,
+    _amount: str,
+    destination_address: str | None = None,
+) -> dict:
+    """Estimate the network fee for sending ``_amount`` of ``asset``.
+
+    Parameters
+    ----------
+    vault_account_id: str
+        The Fireblocks vault account ID that funds will be sent from.
+    asset: str
+        The asset identifier.
+    _amount: str
+        Amount to transfer as a string.
+    destination_address: str | None
+        Optional destination address. If provided, the request will include a
+        ONE_TIME_ADDRESS destination block.
+    """
 
     def sync_call() -> dict:
         with get_fireblocks_client() as client:
             tx_request = {
                 "assetId": asset,
                 "amount": TransactionRequestAmount(_amount),
+                "operation": "TRANSFER",
+                "source": {"type": "VAULT_ACCOUNT", "id": vault_account_id},
             }
+            if destination_address is not None:
+                tx_request["destination"] = {
+                    "type": "ONE_TIME_ADDRESS",
+                    "oneTimeAddress": {"address": destination_address},
+                }
             idempotency_key = uuid.uuid4().hex
             future = client.transactions.estimate_transaction_fee(
                 transaction_request=tx_request,

@@ -156,7 +156,9 @@ async def estimate_fee(
     if not current_user.email_verified:
         raise HTTPException(status_code=400, detail="Email not verified")
 
-    return await estimate_transaction_fee(payload.asset, payload.amount)
+    return await estimate_transaction_fee(
+        payload.vault_id, payload.asset, payload.amount
+    )
 
 
 
